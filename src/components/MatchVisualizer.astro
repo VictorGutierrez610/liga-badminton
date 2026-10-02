@@ -1,0 +1,146 @@
+---
+---
+
+<div id="view_matches" class="tab-view active">
+  <!-- Top Control Bar -->
+  <div class="glass-card flex-between flex-wrap gap-12">
+    <div>
+      <div class="flex-gap">
+        <label for="selectJornadaVis" class="form-label" style="margin:0">Jornada Activa:</label>
+        <select id="selectJornadaVis" class="form-select" style="width: auto; min-width: 220px;">
+          <!-- Populated by JS -->
+        </select>
+      </div>
+      <div id="jornadaInfoSubtitle" class="text-muted" style="font-size:13px; margin-top:6px;">
+        Cargando información de jornada...
+      </div>
+    </div>
+
+    <div class="flex-gap">
+      <button class="btn btn-secondary btn-sm" id="btnRefreshVisualizer">
+        🔄 Actualizar
+      </button>
+    </div>
+  </div>
+
+  <!-- Category Pills -->
+  <div class="cat-tabs" id="categoryTabsVis">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- Visualizer Sub Tabs -->
+  <div class="glass-card" style="padding:16px;">
+    <div class="tab-bar" style="margin-bottom:14px;">
+      <button class="tab-btn active" id="subtab_bracket">
+        🌳 Llave / Cuadro Eliminatorio
+      </button>
+      <button class="tab-btn" id="subtab_groups">
+        📊 Fase de Grupos & Clasificación
+      </button>
+      <button class="tab-btn" id="subtab_matchlist">
+        📋 Lista de Partidos (<span id="matchCountBadge">0</span>)
+      </button>
+    </div>
+
+    <!-- Bracket View Content -->
+    <div id="content_bracket" class="subview-content">
+      <div class="bracket-wrapper">
+        <div class="bracket-container" id="bracketTreeContainer">
+          <div class="text-muted text-center" style="width:100%; padding:30px;">
+            Selecciona una jornada y categoría con competición creada.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Group Standings View Content -->
+    <div id="content_groups" class="subview-content" style="display:none;">
+      <div id="groupsStandingsContainer">
+        <!-- Standings tables will be rendered here -->
+      </div>
+    </div>
+
+    <!-- Match List View Content -->
+    <div id="content_matchlist" class="subview-content" style="display:none;">
+      <div class="flex-between flex-wrap gap-12" style="margin-bottom:14px;">
+        <div class="flex-gap">
+          <button class="btn btn-secondary btn-sm filter-match-btn active" data-filter="all">Todos</button>
+          <button class="btn btn-secondary btn-sm filter-match-btn" data-filter="pending">Pendientes</button>
+          <button class="btn btn-secondary btn-sm filter-match-btn" data-filter="played">Jugados</button>
+        </div>
+        <input type="text" id="searchMatchPlayer" class="form-control" placeholder="Buscar jugador..." style="max-width:240px;" />
+      </div>
+
+      <div id="matchListTableContainer">
+        <!-- Rendered match rows -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Register / Edit Score -->
+<div id="scoreEntryModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 class="modal-title">Anotar / Editar Resultado</h3>
+      <button class="modal-close" id="btnCloseScoreModal">✕</button>
+    </div>
+
+    <div class="match-teams-preview glass-card" style="margin-bottom:16px; padding:14px; background:rgba(0,0,0,0.3);">
+      <div class="flex-between" style="font-size:15px; font-weight:700;">
+        <span id="scoreModalTeamA" class="text-purple">Equipo A</span>
+        <span class="text-muted">VS</span>
+        <span id="scoreModalTeamB" class="text-cyan">Equipo B</span>
+      </div>
+      <div id="scoreModalMatchInfo" class="text-muted text-center" style="font-size:12px; margin-top:8px;">
+        Ronda · Puntos por set
+      </div>
+    </div>
+
+    <form id="scoreEntryForm">
+      <div class="score-sets-grid" style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
+        <!-- Set 1 -->
+        <div class="flex-between glass-card" style="padding:10px 14px; margin:0;">
+          <span style="font-weight:600; font-size:14px;">Set 1</span>
+          <div class="flex-gap">
+            <input type="number" id="set1A" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="0" />
+            <span class="text-muted">-</span>
+            <input type="number" id="set1B" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="0" />
+          </div>
+        </div>
+
+        <!-- Set 2 -->
+        <div class="flex-between glass-card" style="padding:10px 14px; margin:0;">
+          <span style="font-weight:600; font-size:14px;">Set 2</span>
+          <div class="flex-gap">
+            <input type="number" id="set2A" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="-" />
+            <span class="text-muted">-</span>
+            <input type="number" id="set2B" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="-" />
+          </div>
+        </div>
+
+        <!-- Set 3 -->
+        <div class="flex-between glass-card" style="padding:10px 14px; margin:0;">
+          <span style="font-weight:600; font-size:14px;">Set 3 (si aplica)</span>
+          <div class="flex-gap">
+            <input type="number" id="set3A" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="-" />
+            <span class="text-muted">-</span>
+            <input type="number" id="set3B" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="-" />
+          </div>
+        </div>
+      </div>
+
+      <div id="scoreModalError" class="text-red text-center" style="font-size:13px; min-height:20px; margin-bottom:12px;"></div>
+
+      <div class="flex-between">
+        <button type="button" class="btn btn-danger btn-sm" id="btnDeleteMatchScore" style="display:none;">
+          🗑️ Borrar Resultado
+        </button>
+        <div class="flex-gap" style="margin-left:auto;">
+          <button type="button" class="btn btn-secondary" id="btnCancelScoreModal">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveScoreModal">Guardar Marcador</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>

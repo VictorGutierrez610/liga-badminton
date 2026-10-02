@@ -1,0 +1,228 @@
+---
+---
+
+<div id="view_manager" class="tab-view" style="display:none;">
+  <!-- Section 1: Jornada Management -->
+  <div class="glass-card">
+    <div class="flex-between flex-wrap gap-12" style="margin-bottom:16px;">
+      <div>
+        <h2 style="font-size:20px; font-weight:700;">Gestión de Jornadas</h2>
+        <p class="text-muted" style="font-size:13px;">Crea nuevas jornadas de viernes o administra las existentes.</p>
+      </div>
+      <button class="btn btn-primary" id="btnOpenNewJornadaModal">
+        ➕ Nueva Jornada
+      </button>
+    </div>
+
+    <div class="table-container">
+      <table class="custom-table">
+        <thead>
+          <tr>
+            <th class="text-left">Fecha</th>
+            <th>Modalidad</th>
+            <th>Formato Base</th>
+            <th>Pts / Set</th>
+            <th>Partidos</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="managerJornadasTableBody">
+          <!-- Populated by JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Section 2: Category Inscription & Competition Builder -->
+  <div class="glass-card">
+    <div class="flex-between flex-wrap gap-12" style="margin-bottom:16px;">
+      <div>
+        <h2 style="font-size:20px; font-weight:700;">Inscripciones & Sistema de Competición</h2>
+        <p class="text-muted" style="font-size:13px;">Selecciona la jornada y categoría para inscribir jugadores y configurar el formato.</p>
+      </div>
+      <div class="flex-gap">
+        <select id="mgrSelectJornada" class="form-select" style="min-width:200px;">
+          <!-- Populated by JS -->
+        </select>
+        <select id="mgrSelectCategoria" class="form-select" style="min-width:140px;">
+          <!-- Populated by JS -->
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-cols-2" style="margin-top:20px;">
+      <!-- Inscription Box -->
+      <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
+        <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
+          1. Inscripción de Participantes (<span id="inscritosCount">0</span>)
+        </h3>
+
+        <!-- Form for adding participant -->
+        <div id="addInscriptionBox" class="form-group" style="position:relative;">
+          <div id="singlePlayerInputArea">
+            <label class="form-label">Buscar Jugador / Socio:</label>
+            <input type="text" id="inputSearchPlayerSingle" class="form-control" placeholder="Escribe nombre o apellido..." />
+            <div id="suggestBoxSingle" class="suggest-dropdown" style="display:none;"></div>
+          </div>
+
+          <div id="doublesPlayerInputArea" style="display:none;" class="grid-cols-2">
+            <div>
+              <label class="form-label">Jugador 1:</label>
+              <input type="text" id="inputSearchPlayer1" class="form-control" placeholder="Nombre J1..." />
+              <div id="suggestBoxP1" class="suggest-dropdown" style="display:none;"></div>
+            </div>
+            <div>
+              <label class="form-label">Jugador 2:</label>
+              <input type="text" id="inputSearchPlayer2" class="form-control" placeholder="Nombre J2..." />
+              <div id="suggestBoxP2" class="suggest-dropdown" style="display:none;"></div>
+            </div>
+          </div>
+
+          <div class="flex-between" style="margin-top:10px;">
+            <span id="inscriptionFormError" class="text-red" style="font-size:12px;"></span>
+            <button class="btn btn-secondary btn-sm" id="btnAddParticipant">
+              ➕ Añadir Inscrito
+            </button>
+          </div>
+        </div>
+
+        <!-- Inscriptions List -->
+        <div id="inscritosListContainer" style="margin-top:16px; max-height:280px; overflow-y:auto;">
+          <!-- Inscribed players rendered here -->
+        </div>
+      </div>
+
+      <!-- Competition Builder Box -->
+      <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
+        <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
+          2. Formato de Competición
+        </h3>
+
+        <div id="compStatusOverview" style="margin-bottom:14px;">
+          <!-- Displays current competition state -->
+        </div>
+
+        <div id="compSetupForm">
+          <label class="form-label">Elegir Sistema:</label>
+          <div class="system-options-grid" style="display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:14px;">
+            <div class="system-option-card glass-card selected" data-system="LIGA" style="margin:0; padding:12px; cursor:pointer;">
+              <div style="font-weight:700;">🏆 Grupo Único / Liga</div>
+              <div class="text-muted" style="font-size:12px;">Todos contra todos en un solo grupo. Recomendado para 3 a 6 participantes.</div>
+            </div>
+
+            <div class="system-option-card glass-card" data-system="GRUPOS" style="margin:0; padding:12px; cursor:pointer;">
+              <div style="font-weight:700;">🧩 Fase de Grupos + Eliminatoria</div>
+              <div class="text-muted" style="font-size:12px;">Reparto en varios grupos y posterior cuadro final con los mejores clasificados.</div>
+            </div>
+
+            <div class="system-option-card glass-card" data-system="ELIM" style="margin:0; padding:12px; cursor:pointer;">
+              <div style="font-weight:700;">⚔️ Eliminatoria Directa</div>
+              <div class="text-muted" style="font-size:12px;">Cuadro directo KO desde octavos / cuartos / semifinales.</div>
+            </div>
+          </div>
+
+          <div id="groupsConfigBox" style="display:none; margin-bottom:14px;">
+            <label class="form-label">Número de Grupos:</label>
+            <input type="number" id="numGruposInput" class="form-control" value="2" min="2" max="4" style="margin-bottom:10px;" />
+            <label class="form-label">Clasifican por Grupo:</label>
+            <input type="number" id="clasificanGruposInput" class="form-control" value="2" min="1" max="4" />
+          </div>
+
+          <div id="compSetupError" class="text-red" style="font-size:12px; margin-bottom:10px;"></div>
+
+          <button class="btn btn-primary" id="btnCreateCompetition" style="width:100%;">
+            🚀 Generar Partidos & Competición
+          </button>
+        </div>
+
+        <div id="compActiveActions" style="display:none; margin-top:14px;">
+          <button class="btn btn-secondary btn-sm" id="btnGenerateEliminatoria" style="margin-bottom:8px; width:100%;">
+            ⚔️ Generar Cuadro Eliminatorio Final
+          </button>
+          <button class="btn btn-danger btn-sm" id="btnResetCompetition" style="width:100%;">
+            ⚠️ Reiniciar / Borrar Competición
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: New Jornada -->
+<div id="newJornadaModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 class="modal-title">Crear Nueva Jornada de Bádminton</h3>
+      <button class="modal-close" id="btnCloseNewJornadaModal">✕</button>
+    </div>
+
+    <form id="newJornadaForm">
+      <div class="form-group">
+        <label class="form-label">Fecha del Viernes:</label>
+        <input type="date" id="newJornadaFecha" class="form-control" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Modalidad del Día:</label>
+        <select id="newJornadaModalidad" class="form-select">
+          <option value="Individual">Individual (IM-A, IF-A, IM-B, IF-B)</option>
+          <option value="Dobles">Dobles (DM, DF)</option>
+          <option value="Dobles mixtos">Dobles Mixtos (DX)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Formato de Juego:</label>
+        <select id="newJornadaFormato" class="form-select">
+          <option value="UNO">Un solo set (15 pts)</option>
+          <option value="TRES">Mejor de 3 sets (15 pts)</option>
+          <option value="MIXTO">Mixto (1 set en grupos, mejor de 3 en elim.)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Puntos por Set:</label>
+        <input type="number" id="newJornadaPuntos" class="form-control" value="15" min="1" max="50" />
+      </div>
+
+      <div id="newJornadaError" class="text-red" style="font-size:13px; margin-bottom:12px;"></div>
+
+      <div class="flex-between">
+        <button type="button" class="btn btn-secondary" id="btnCancelNewJornadaModal">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Crear Jornada</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+  .suggest-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #150a2a;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm);
+    max-height: 180px;
+    overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  }
+
+  .suggest-item {
+    padding: 10px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .suggest-item:hover {
+    background: var(--primary);
+    color: #fff;
+  }
+</style>

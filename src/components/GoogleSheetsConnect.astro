@@ -1,0 +1,89 @@
+---
+---
+
+<div id="view_sheets" class="tab-view" style="display:none;">
+  <div class="glass-card">
+    <h2 style="font-size:20px; font-weight:700; margin-bottom:6px;">Integración con Google Sheets & Apps Script</h2>
+    <p class="text-muted" style="font-size:13px; margin-bottom:18px;">
+      Conecta la aplicación web directamente con tu hoja de cálculo de Google Sheets (ID: <code>19DM6m4Cq5Lxo8NwN1z5d1f12Ar4eAgIpsIjmFZ3qaHw</code>) ejecutando el código Apps Script incluido.
+    </p>
+
+    <div class="grid-cols-2">
+      <!-- Connection Form -->
+      <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
+        <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
+          1. Configuración de Conexión
+        </h3>
+
+        <div class="form-group">
+          <label class="form-label">URL del Web App de Apps Script:</label>
+          <input type="url" id="inputScriptUrl" class="form-control" placeholder="https://script.google.com/macros/s/.../exec" />
+          <div class="text-muted" style="font-size:11px; margin-top:4px;">
+            Obtén esta URL tras hacer clic en "Desplegar -> Nuevo despliegue -> Aplicación web" en Google Apps Script.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">PIN Admin de la Hoja:</label>
+          <input type="password" id="inputScriptPin" class="form-control" placeholder="Escribe tu PIN si lo definiste..." />
+        </div>
+
+        <div id="connectionStatusBox" class="glass-card" style="margin-bottom:14px; padding:12px; font-size:13px;">
+          <b>Estado:</b> <span id="connStatusBadge" class="badge badge-definitiva">Modo Local Demo</span>
+        </div>
+
+        <div class="flex-gap">
+          <button class="btn btn-primary" id="btnTestAndSaveUrl">
+            🔗 Probar & Guardar Conexión
+          </button>
+          <button class="btn btn-secondary" id="btnResetToLocalMode">
+            ⚙️ Usar Modo Local
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Sync Card -->
+      <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
+        <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
+          2. Sincronización Manual
+        </h3>
+
+        <p class="text-muted" style="font-size:13px; line-height:1.5; margin-bottom:16px;">
+          La aplicación guarda los marcadores y jornadas automáticamente. Puedes forzar la sincronización en tiempo real con la pestaña de <b>Resultados</b> y <b>ResultadosIndividuales</b> del Google Sheet.
+        </p>
+
+        <button class="btn btn-success btn-lg" id="btnSyncGoogleSheets" style="width:100%;">
+          🔄 Sincronizar Ahora con Google Sheets
+        </button>
+
+        <div id="syncResultMsg" class="text-center" style="font-size:13px; margin-top:12px; min-height:20px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deployment Guide & Code Block -->
+  <div class="glass-card">
+    <div class="flex-between flex-wrap gap-12" style="margin-bottom:12px;">
+      <div>
+        <h3 style="font-size:18px; font-weight:700;">Instrucciones para Desplegar en Google Apps Script</h3>
+        <p class="text-muted" style="font-size:13px;">Paso a paso para vincular tu Hoja de Google Sheets con esta aplicación.</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" id="btnCopyScriptCode">
+        📋 Copiar Código Apps Script
+      </button>
+    </div>
+
+    <ol style="color:var(--text-muted); font-size:13px; line-height:1.7; margin-left:20px; margin-bottom:16px;">
+      <li>Abre tu Hoja de Cálculo en Google Sheets (ID: <code>19DM6m4Cq5Lxo8NwN1z5d1f12Ar4eAgIpsIjmFZ3qaHw</code>).</li>
+      <li>Ve al menú superior: <b>Extensiones</b> -&gt; <b>Apps Script</b>.</li>
+      <li>Reemplaza el código del archivo <code>Código.gs</code> con el código que se muestra abajo.</li>
+      <li>Haz clic en <b>Desplegar</b> -&gt; <b>Nuevo despliegue</b> -&gt; Selecciona tipo <b>Aplicación Web</b>.</li>
+      <li>En <i>Ejecutar como</i> pon <b>"Yo"</b> y en <i>Quién tiene acceso</i> selecciona <b>"Cualquiera"</b>.</li>
+      <li>Copia la URL del despliegue y pégala en el campo de arriba.</li>
+    </ol>
+
+    <div class="code-block" id="scriptCodeDisplayContainer">
+      <!-- Injected by JS -->
+    </div>
+  </div>
+</div>

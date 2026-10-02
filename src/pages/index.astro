@@ -1,11 +1,1100 @@
 ---
-import Welcome from '../components/Welcome.astro';
 import Layout from '../layouts/Layout.astro';
-
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+import Header from '../components/Header.astro';
+import MatchVisualizer from '../components/MatchVisualizer.astro';
+import CompetitionManager from '../components/CompetitionManager.astro';
+import RankingsView from '../components/RankingsView.astro';
+import GoogleSheetsConnect from '../components/GoogleSheetsConnect.astro';
 ---
 
-<Layout>
-	<Welcome />
+<Layout title="Liga de Bádminton de los Viernes UNI">
+  <Header />
+
+  <main>
+    <MatchVisualizer />
+    <CompetitionManager />
+    <RankingsView />
+    <GoogleSheetsConnect />
+  </main>
 </Layout>
+
+<script>
+  import { engine, RONDAS, CATEGORIAS } from '../lib/gsEngine.js';
+  import { APPS_SCRIPT_CODE } from '../lib/appsScriptBackendCode.js';
+
+  // --- State Variables ---
+  let currentTab = 'matches';
+  let selectedJornadaId = '';
+  let selectedCategory = '';
+  let activeVisualizerSubtab = 'bracket';
+  let matchFilterState = 'all';
+
+  let selectedScoreMatch = null;
+
+  let mgrJornadaId = '';
+  let mgrCategory = '';
+  let selectedSystem = 'LIGA';
+  let selectedPlayerSingle = null;
+  let selectedPlayerP1 = null;
+  let selectedPlayerP2 = null;
+
+  let rankSeason = '2026-27';
+  let rankLevel = 'A';
+  let rankType = 'IM';
+
+  // --- Core Initializer ---
+  document.addEventListener('DOMContentLoaded', () => {
+    initNavigation();
+    initVisualizer();
+    initManager();
+    initRankings();
+    initGoogleSheets();
+    
+    // Initial Load
+    loadJornadasVisualizer();
+  });
+
+  // --- Navigation Tabs ---
+  function initNavigation() {
+    const navButtons = document.querySelectorAll('#appMainNavigation .nav-tab');
+    navButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.getAttribute('data-tab');
+        switchTab(tab);
+      });
+    });
+  }
+
+  function switchTab(tabName) {
+    currentTab = tabName;
+    document.querySelectorAll('#appMainNavigation .nav-tab').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tabName);
+    });
+
+    document.querySelectorAll('.tab-view').forEach(view => {
+      view.style.display = view.id === `view_${tabName}` ? 'block' : 'none';
+    });
+
+    if (tabName === 'matches') {
+      loadJornadasVisualizer();
+    } else if (tabName === 'manager') {
+      loadJornadasManager();
+    } else if (tabName === 'rankings') {
+      renderRankingsTable();
+    }
+  }
+
+  // --- Visualizer Logic ---
+  function initVisualizer() {
+    const selJ = document.getElementById('selectJornadaVis');
+    if (selJ) {
+      selJ.addEventListener('change', (e) => {
+        selectedJornadaId = e.target.value;
+        loadCategoriesVisualizer();
+      });
+    }
+
+    document.getElementById('btnRefreshVisualizer')?.addEventListener('click', () => {
+      loadCategoriesVisualizer();
+    });
+
+    // Subtabs
+    ['bracket', 'groups', 'matchlist'].forEach(st => {
+      document.getElementById(`subtab_${st}`)?.addEventListener('click', () => {
+        setVisualizerSubtab(st);
+      });
+    });
+
+    // Match list filters
+    document.querySelectorAll('.filter-match-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.filter-match-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        matchFilterState = btn.getAttribute('data-filter');
+        renderMatchList();
+      });
+    });
+
+    document.getElementById('searchMatchPlayer')?.addEventListener('input', () => {
+      renderMatchList();
+    });
+
+    // Score Modal handlers
+    document.getElementById('btnCloseScoreModal')?.addEventListener('click', closeScoreModal);
+    document.getElementById('btnCancelScoreModal')?.addEventListener('click', closeScoreModal);
+    document.getElementById('scoreEntryForm')?.addEventListener('submit', saveScoreModal);
+    document.getElementById('btnDeleteMatchScore')?.addEventListener('click', deleteScoreModal);
+  }
+
+  function setVisualizerSubtab(subtab) {
+    activeVisualizerSubtab = subtab;
+    ['bracket', 'groups', 'matchlist'].forEach(st => {
+      const btn = document.getElementById(`subtab_${st}`);
+      const content = document.getElementById(`content_${st}`);
+      if (btn) btn.classList.toggle('active', st === subtab);
+      if (content) content.style.display = st === subtab ? 'block' : 'none';
+    });
+  }
+
+  function loadJornadasVisualizer() {
+    const jornadas = engine.getJornadas();
+    const sel = document.getElementById('selectJornadaVis');
+    if (!sel) return;
+
+    sel.innerHTML = '';
+    if (jornadas.length === 0) {
+      sel.innerHTML = '<option value="">Sin jornadas creadas</option>';
+      document.getElementById('jornadaInfoSubtitle').textContent = 'No hay jornadas en el sistema.';
+      return;
+    }
+
+    jornadas.forEach(j => {
+      const opt = document.createElement('option');
+      opt.value = j.id;
+      opt.textContent = `${j.fecha} (${j.modalidad})`;
+      sel.appendChild(opt);
+    });
+
+    if (!selectedJornadaId || !jornadas.some(j => j.id === selectedJornadaId)) {
+      selectedJornadaId = jornadas[0].id;
+    }
+    sel.value = selectedJornadaId;
+    loadCategoriesVisualizer();
+  }
+
+  function loadCategoriesVisualizer() {
+    const jornadas = engine.getJornadas();
+    const j = jornadas.find(x => x.id === selectedJornadaId);
+    const subTitle = document.getElementById('jornadaInfoSubtitle');
+
+    if (!j) {
+      if (subTitle) subTitle.textContent = 'Selecciona una jornada.';
+      return;
+    }
+
+    const fmtText = j.formato === 'UNO' ? '1 Set (15 pts)' : j.formato === 'TRES' ? 'Mejor de 3 Sets' : `Mixto (3 sets desde ${j.desde})`;
+    if (subTitle) {
+      subTitle.innerHTML = `<b>${j.fecha}</b> · Modalidad: <b>${j.modalidad}</b> · Formato: ${fmtText} ${j.definitiva ? '<span class="badge badge-definitiva">DEFINITIVA</span>' : '<span class="badge badge-borrador">EN CURSO</span>'}`;
+    }
+
+    const catsData = engine.getCategoriasJornada(selectedJornadaId);
+    const container = document.getElementById('categoryTabsVis');
+    if (!container) return;
+
+    container.innerHTML = '';
+    if (catsData.length === 0) return;
+
+    catsData.forEach((c, idx) => {
+      const btn = document.createElement('button');
+      btn.className = `cat-tab ${(!selectedCategory && idx === 0) || selectedCategory === c.categoria ? 'active' : ''}`;
+      btn.innerHTML = `${c.categoria} <small>(${c.jugados}/${c.totalPartidos})</small>`;
+      btn.addEventListener('click', () => {
+        selectedCategory = c.categoria;
+        document.querySelectorAll('#categoryTabsVis .cat-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderCategoryVisuals();
+      });
+      container.appendChild(btn);
+    });
+
+    if (!selectedCategory || !catsData.some(c => c.categoria === selectedCategory)) {
+      selectedCategory = catsData[0].categoria;
+    }
+    renderCategoryVisuals();
+  }
+
+  function renderCategoryVisuals() {
+    if (!selectedJornadaId || !selectedCategory) return;
+    const detail = engine.getCompeticionDetalle(selectedJornadaId, selectedCategory);
+
+    renderBracketTree(detail);
+    renderGroupStandings(detail);
+    renderMatchList(detail);
+  }
+
+  // Bracket Render
+  function renderBracketTree(detail) {
+    const container = document.getElementById('bracketTreeContainer');
+    if (!container) return;
+
+    if (!detail.competicion) {
+      container.innerHTML = '<div class="text-muted text-center" style="width:100%; padding:30px;">Esta categoría aún no tiene competición creada. Ve a la pestaña "Gestor de Competición".</div>';
+      return;
+    }
+
+    const pars = detail.partidos.filter(p => p.ronda !== 'Fase de grupos');
+    if (pars.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center" style="width:100%; padding:30px;">Esta categoría se juega en modalidad de Grupo Único / Liga o todavía no ha generado la fase final. Revisa la pestaña "Fase de Grupos".</div>';
+      return;
+    }
+
+    // Group matches by round
+    const roundsMap = {};
+    pars.forEach(p => {
+      if (!roundsMap[p.ronda]) roundsMap[p.ronda] = [];
+      roundsMap[p.ronda].push(p);
+    });
+
+    const roundOrder = ['Dieciseisavos', 'Octavos', 'Cuartos', 'Semifinal', 'Final'];
+    const presentRounds = roundOrder.filter(r => roundsMap[r]);
+
+    let html = '';
+    presentRounds.forEach(rName => {
+      const rMatches = roundsMap[rName].sort((a, b) => a.orden - b.orden);
+      html += `<div class="bracket-round">
+        <div class="bracket-round-title">${rName}</div>`;
+
+      rMatches.forEach(m => {
+        const isWinA = m.estado === 'Jugado' && m.ganador === 'A';
+        const isWinB = m.estado === 'Jugado' && m.ganador === 'B';
+        const scoreA = m.sets && m.sets.length ? m.sets.map(s => s[0]).join(' ') : (m.estado === 'Bye' && m.ganador === 'A' ? 'BYE' : '');
+        const scoreB = m.sets && m.sets.length ? m.sets.map(s => s[1]).join(' ') : (m.estado === 'Bye' && m.ganador === 'B' ? 'BYE' : '');
+
+        const teamAName = m.nomA && m.nomA.length ? m.nomA.join(' / ') : 'Por determinar';
+        const teamBName = m.nomB && m.nomB.length ? m.nomB.join(' / ') : 'Por determinar';
+
+        html += `
+          <div class="bracket-match" data-match-id="${m.id}">
+            <div class="bracket-team ${isWinA ? 'winner' : ''}">
+              <span class="bracket-team-name">${escapeHtml(teamAName)}</span>
+              <span class="bracket-team-score">${scoreA}</span>
+            </div>
+            <div class="bracket-team ${isWinB ? 'winner' : ''}">
+              <span class="bracket-team-name">${escapeHtml(teamBName)}</span>
+              <span class="bracket-team-score">${scoreB}</span>
+            </div>
+            <div class="bracket-action-bar">
+              <span class="badge ${m.estado === 'Jugado' ? 'badge-jugado' : m.estado === 'Bye' ? 'badge-bye' : 'badge-pendiente'}">${m.estado}</span>
+              ${m.estado !== 'Bye' && m.idsA.length && m.idsB.length ? `<button class="btn btn-secondary btn-sm open-score-btn" data-match-id="${m.id}" style="padding:2px 6px; font-size:10px;">Anotar ✏️</button>` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+    });
+
+    container.innerHTML = html;
+
+    // Attach click listeners to open score modal
+    container.querySelectorAll('.open-score-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mId = btn.getAttribute('data-match-id');
+        openScoreModal(mId);
+      });
+    });
+  }
+
+  // Group Standings Render
+  function renderGroupStandings(detail) {
+    const container = document.getElementById('groupsStandingsContainer');
+    if (!container) return;
+
+    if (!detail.competicion) {
+      container.innerHTML = '<div class="text-muted text-center" style="padding:20px;">Sin competición configurada.</div>';
+      return;
+    }
+
+    const clas = detail.clasificacion || {};
+    const groupKeys = Object.keys(clas).sort();
+
+    if (groupKeys.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center" style="padding:20px;">No hay fase de grupos en esta categoría.</div>';
+      return;
+    }
+
+    let html = '';
+    groupKeys.forEach(gName => {
+      const rows = clas[gName];
+      html += `
+        <div class="glass-card" style="margin-bottom:16px;">
+          <h4 style="color:var(--primary-light); margin-bottom:10px; font-size:15px; font-weight:700;">
+            Grupo ${gName}
+          </h4>
+          <div class="table-container">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th>Pos</th>
+                  <th class="text-left">Participante</th>
+                  <th>PJ</th>
+                  <th>G</th>
+                  <th>P</th>
+                  <th>SF</th>
+                  <th>SC</th>
+                  <th>PF</th>
+                  <th>PC</th>
+                  <th>Diff</th>
+                  <th>Pts Ranking</th>
+                </tr>
+              </thead>
+              <tbody>`;
+
+      rows.forEach((row, idx) => {
+        const isLeader = idx === 0;
+        html += `
+          <tr class="${isLeader ? 'leader-row' : ''}">
+            <td><b>${idx + 1}º</b></td>
+            <td class="text-left">${escapeHtml(row.nombre)}</td>
+            <td>${row.PJ}</td>
+            <td class="text-green">${row.G}</td>
+            <td class="text-red">${row.P}</td>
+            <td>${row.SF}</td>
+            <td>${row.SC}</td>
+            <td>${row.PF}</td>
+            <td>${row.PC}</td>
+            <td class="${row.diffPuntosGrupo < 0 ? 'text-red' : 'text-green'}">${row.diffPuntosGrupo > 0 ? '+' : ''}${row.diffPuntosGrupo}</td>
+            <td style="font-weight:700; color:var(--accent-gold);">${row.pts}</td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table></div></div>`;
+    });
+
+    container.innerHTML = html;
+  }
+
+  // Match List Render
+  function renderMatchList(detailPassed) {
+    const detail = detailPassed || engine.getCompeticionDetalle(selectedJornadaId, selectedCategory);
+    const container = document.getElementById('matchListTableContainer');
+    const badge = document.getElementById('matchCountBadge');
+    if (!container) return;
+
+    let pars = detail.partidos || [];
+    if (badge) badge.textContent = pars.length.toString();
+
+    if (pars.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center" style="padding:20px;">No hay partidos programados.</div>';
+      return;
+    }
+
+    // Apply Filter
+    if (matchFilterState === 'pending') {
+      pars = pars.filter(p => p.estado === 'Pendiente');
+    } else if (matchFilterState === 'played') {
+      pars = pars.filter(p => p.estado === 'Jugado');
+    }
+
+    // Search filter
+    const searchVal = document.getElementById('searchMatchPlayer')?.value.toLowerCase().trim() || '';
+    if (searchVal) {
+      pars = pars.filter(p => {
+        const nomA = p.nomA.join(' ').toLowerCase();
+        const nomB = p.nomB.join(' ').toLowerCase();
+        return nomA.includes(searchVal) || nomB.includes(searchVal);
+      });
+    }
+
+    let html = `
+      <div class="table-container">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Ronda / Grupo</th>
+              <th class="text-left">Equipo / Jugador A</th>
+              <th>Resultado</th>
+              <th class="text-left">Equipo / Jugador B</th>
+              <th>Estado</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    pars.forEach(m => {
+      const scoreTxt = m.sets && m.sets.length ? m.sets.map(s => `${s[0]}-${s[1]}`).join(' / ') : '-';
+      const roundTxt = m.grupo ? `${m.ronda} (Gr. ${m.grupo})` : m.ronda;
+
+      html += `
+        <tr>
+          <td><span class="badge badge-bye">${roundTxt}</span></td>
+          <td class="text-left ${m.ganador === 'A' ? 'text-green' : ''}" style="font-weight:${m.ganador === 'A' ? '700' : '400'};">
+            ${escapeHtml(m.nomA.join(' / ') || 'Por determinar')}
+          </td>
+          <td style="font-weight:700; color:var(--primary-light); font-size:14px;">${scoreTxt}</td>
+          <td class="text-left ${m.ganador === 'B' ? 'text-green' : ''}" style="font-weight:${m.ganador === 'B' ? '700' : '400'};">
+            ${escapeHtml(m.nomB.join(' / ') || 'Por determinar')}
+          </td>
+          <td><span class="badge ${m.estado === 'Jugado' ? 'badge-jugado' : m.estado === 'Bye' ? 'badge-bye' : 'badge-pendiente'}">${m.estado}</span></td>
+          <td>
+            ${m.estado !== 'Bye' && m.idsA.length && m.idsB.length ? `<button class="btn btn-secondary btn-sm open-score-btn" data-match-id="${m.id}">Anotar ✏️</button>` : '-'}
+          </td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table></div>`;
+    container.innerHTML = html;
+
+    container.querySelectorAll('.open-score-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openScoreModal(btn.getAttribute('data-match-id'));
+      });
+    });
+  }
+
+  // --- Score Entry Modal ---
+  function openScoreModal(matchId) {
+    const detail = engine.getCompeticionDetalle(selectedJornadaId, selectedCategory);
+    const m = detail.partidos.find(x => x.id === matchId);
+    if (!m) return;
+
+    selectedScoreMatch = m;
+
+    document.getElementById('scoreModalTeamA').textContent = m.nomA.join(' / ') || 'Equipo A';
+    document.getElementById('scoreModalTeamB').textContent = m.nomB.join(' / ') || 'Equipo B';
+    document.getElementById('scoreModalMatchInfo').textContent = `${m.ronda} ${m.grupo ? 'Group ' + m.grupo : ''}`;
+    document.getElementById('scoreModalError').textContent = '';
+
+    const s1 = m.sets[0] || ['', ''];
+    const s2 = m.sets[1] || ['', ''];
+    const s3 = m.sets[2] || ['', ''];
+
+    document.getElementById('set1A').value = s1[0] !== undefined ? s1[0] : '';
+    document.getElementById('set1B').value = s1[1] !== undefined ? s1[1] : '';
+    document.getElementById('set2A').value = s2[0] !== undefined ? s2[0] : '';
+    document.getElementById('set2B').value = s2[1] !== undefined ? s2[1] : '';
+    document.getElementById('set3A').value = s3[0] !== undefined ? s3[0] : '';
+    document.getElementById('set3B').value = s3[1] !== undefined ? s3[1] : '';
+
+    const btnDelete = document.getElementById('btnDeleteMatchScore');
+    if (btnDelete) btnDelete.style.display = m.estado === 'Jugado' ? 'block' : 'none';
+
+    document.getElementById('scoreEntryModal').style.display = 'flex';
+  }
+
+  function closeScoreModal() {
+    document.getElementById('scoreEntryModal').style.display = 'none';
+    selectedScoreMatch = null;
+  }
+
+  function saveScoreModal(e) {
+    e.preventDefault();
+    if (!selectedScoreMatch) return;
+
+    const s1A = document.getElementById('set1A').value;
+    const s1B = document.getElementById('set1B').value;
+    const s2A = document.getElementById('set2A').value;
+    const s2B = document.getElementById('set2B').value;
+    const s3A = document.getElementById('set3A').value;
+    const s3B = document.getElementById('set3B').value;
+
+    const sets = [];
+    if (s1A !== '' && s1B !== '') sets.push([Number(s1A), Number(s1B)]);
+    if (s2A !== '' && s2B !== '') sets.push([Number(s2A), Number(s2B)]);
+    if (s3A !== '' && s3B !== '') sets.push([Number(s3A), Number(s3B)]);
+
+    if (sets.length === 0) {
+      document.getElementById('scoreModalError').textContent = 'Introduce al menos el marcador del primer set.';
+      return;
+    }
+
+    try {
+      engine.guardarResultado(selectedScoreMatch.id, sets);
+      closeScoreModal();
+      renderCategoryVisuals();
+    } catch (err) {
+      document.getElementById('scoreModalError').textContent = err.message || String(err);
+    }
+  }
+
+  function deleteScoreModal() {
+    if (!selectedScoreMatch) return;
+    try {
+      engine.borrarResultado(selectedScoreMatch.id);
+      closeScoreModal();
+      renderCategoryVisuals();
+    } catch (err) {
+      document.getElementById('scoreModalError').textContent = err.message || String(err);
+    }
+  }
+
+  // --- Manager Logic ---
+  function initManager() {
+    document.getElementById('btnOpenNewJornadaModal')?.addEventListener('click', () => {
+      document.getElementById('newJornadaFecha').value = new Date().toISOString().split('T')[0];
+      document.getElementById('newJornadaModal').style.display = 'flex';
+    });
+
+    document.getElementById('btnCloseNewJornadaModal')?.addEventListener('click', () => {
+      document.getElementById('newJornadaModal').style.display = 'none';
+    });
+
+    document.getElementById('btnCancelNewJornadaModal')?.addEventListener('click', () => {
+      document.getElementById('newJornadaModal').style.display = 'none';
+    });
+
+    document.getElementById('newJornadaForm')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fecha = document.getElementById('newJornadaFecha').value;
+      const modalidad = document.getElementById('newJornadaModalidad').value;
+      const formato = document.getElementById('newJornadaFormato').value;
+      const puntosSet = document.getElementById('newJornadaPuntos').value;
+
+      try {
+        engine.crearJornada({ fecha, modalidad, formato, puntosSet });
+        document.getElementById('newJornadaModal').style.display = 'none';
+        loadJornadasManager();
+        loadJornadasVisualizer();
+      } catch (err) {
+        document.getElementById('newJornadaError').textContent = err.message;
+      }
+    });
+
+    // Inscription Inputs
+    setupAutocomplete('inputSearchPlayerSingle', 'suggestBoxSingle', (s) => {
+      selectedPlayerSingle = s;
+      document.getElementById('inputSearchPlayerSingle').value = `${s.nombre} ${s.apellidos}`;
+    });
+
+    setupAutocomplete('inputSearchPlayer1', 'suggestBoxP1', (s) => {
+      selectedPlayerP1 = s;
+      document.getElementById('inputSearchPlayer1').value = `${s.nombre} ${s.apellidos}`;
+    });
+
+    setupAutocomplete('inputSearchPlayer2', 'suggestBoxP2', (s) => {
+      selectedPlayerP2 = s;
+      document.getElementById('inputSearchPlayer2').value = `${s.nombre} ${s.apellidos}`;
+    });
+
+    document.getElementById('btnAddParticipant')?.addEventListener('click', handleAddParticipant);
+
+    // System Selection Cards
+    document.querySelectorAll('.system-option-card').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.system-option-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedSystem = card.getAttribute('data-system');
+        const grpBox = document.getElementById('groupsConfigBox');
+        if (grpBox) grpBox.style.display = selectedSystem === 'GRUPOS' ? 'block' : 'none';
+      });
+    });
+
+    document.getElementById('btnCreateCompetition')?.addEventListener('click', handleCreateCompetition);
+
+    // Manager selects
+    document.getElementById('mgrSelectJornada')?.addEventListener('change', (e) => {
+      mgrJornadaId = e.target.value;
+      loadManagerCategories();
+    });
+
+    document.getElementById('mgrSelectCategoria')?.addEventListener('change', (e) => {
+      mgrCategory = e.target.value;
+      renderManagerCategoryDetails();
+    });
+  }
+
+  function setupAutocomplete(inputId, suggestId, onSelect) {
+    const input = document.getElementById(inputId);
+    const box = document.getElementById(suggestId);
+    if (!input || !box) return;
+
+    input.addEventListener('input', () => {
+      const query = input.value.toLowerCase().trim();
+      if (!query) {
+        box.style.display = 'none';
+        return;
+      }
+
+      const socios = engine.getSocios();
+      const matches = socios.filter(s =>
+        s.nombre.toLowerCase().includes(query) ||
+        s.apellidos.toLowerCase().includes(query)
+      ).slice(0, 5);
+
+      if (matches.length === 0) {
+        box.style.display = 'none';
+        return;
+      }
+
+      box.innerHTML = '';
+      matches.forEach(s => {
+        const item = document.createElement('div');
+        item.className = 'suggest-item';
+        item.innerHTML = `<span><b>${escapeHtml(s.nombre)} ${escapeHtml(s.apellidos)}</b></span> <span class="badge badge-bye">Nivel ${s.categoria}</span>`;
+        item.addEventListener('click', () => {
+          onSelect(s);
+          box.style.display = 'none';
+        });
+        box.appendChild(item);
+      });
+      box.style.display = 'block';
+    });
+  }
+
+  function handleAddParticipant() {
+    const isDoubles = mgrCategory.startsWith('D');
+    const ids = [];
+    const errEl = document.getElementById('inscriptionFormError');
+    if (errEl) errEl.textContent = '';
+
+    if (!isDoubles) {
+      if (!selectedPlayerSingle) {
+        if (errEl) errEl.textContent = 'Selecciona un jugador del buscador.';
+        return;
+      }
+      ids.push(selectedPlayerSingle.id);
+    } else {
+      if (!selectedPlayerP1 || !selectedPlayerP2) {
+        if (errEl) errEl.textContent = 'Selecciona los dos jugadores de la pareja.';
+        return;
+      }
+      if (selectedPlayerP1.id === selectedPlayerP2.id) {
+        if (errEl) errEl.textContent = 'Los dos jugadores de la pareja deben ser distintos.';
+        return;
+      }
+      ids.push(selectedPlayerP1.id, selectedPlayerP2.id);
+    }
+
+    try {
+      engine.anadirInscrito(mgrJornadaId, mgrCategory, ids);
+      // Reset
+      selectedPlayerSingle = null;
+      selectedPlayerP1 = null;
+      selectedPlayerP2 = null;
+      document.getElementById('inputSearchPlayerSingle').value = '';
+      document.getElementById('inputSearchPlayer1').value = '';
+      document.getElementById('inputSearchPlayer2').value = '';
+      renderManagerCategoryDetails();
+    } catch (err) {
+      if (errEl) errEl.textContent = err.message;
+    }
+  }
+
+  function handleCreateCompetition() {
+    const errEl = document.getElementById('compSetupError');
+    if (errEl) errEl.textContent = '';
+
+    const cfg = { sistema: selectedSystem };
+    if (selectedSystem === 'GRUPOS') {
+      const numG = Number(document.getElementById('numGruposInput').value) || 2;
+      const clas = Number(document.getElementById('clasificanGruposInput').value) || 2;
+      
+      const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
+      const insc = detail.participantes;
+      const groups = Array.from({ length: numG }, () => []);
+
+      insc.forEach((item, idx) => {
+        groups[idx % numG].push(item.id);
+      });
+
+      cfg.grupos = groups;
+      cfg.clasifican = clas;
+    } else if (selectedSystem === 'ELIM') {
+      const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
+      cfg.seeds = detail.participantes.map(x => x.id);
+    }
+
+    try {
+      engine.crearCompeticion(mgrJornadaId, mgrCategory, cfg);
+      renderManagerCategoryDetails();
+      loadJornadasVisualizer();
+    } catch (err) {
+      if (errEl) errEl.textContent = err.message;
+    }
+  }
+
+  function loadJornadasManager() {
+    const jornadas = engine.getJornadas();
+    const tableBody = document.getElementById('managerJornadasTableBody');
+    const mgrSel = document.getElementById('mgrSelectJornada');
+
+    if (tableBody) {
+      tableBody.innerHTML = '';
+      jornadas.forEach(j => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="text-left"><b>${j.fecha}</b></td>
+          <td>${j.modalidad}</td>
+          <td>${j.formato}</td>
+          <td>${j.puntosSet}</td>
+          <td>${j.partidos}</td>
+          <td><span class="badge ${j.definitiva ? 'badge-definitiva' : 'badge-borrador'}">${j.definitiva ? 'Definitiva' : 'En Curso'}</span></td>
+          <td>
+            ${!j.definitiva ? `<button class="btn btn-secondary btn-sm finalize-jornada-btn" data-id="${j.id}">Guardar Definitiva</button>
+            <button class="btn btn-danger btn-sm delete-jornada-btn" data-id="${j.id}">Borrar</button>` : 'Definitiva'}
+          </td>
+        `;
+        tableBody.appendChild(tr);
+      });
+
+      // Actions
+      tableBody.querySelectorAll('.finalize-jornada-btn').forEach(b => {
+        b.addEventListener('click', () => {
+          engine.guardarJornadaDefinitiva(b.getAttribute('data-id'));
+          loadJornadasManager();
+        });
+      });
+
+      tableBody.querySelectorAll('.delete-jornada-btn').forEach(b => {
+        b.addEventListener('click', () => {
+          if (confirm('¿Seguro que deseas borrar esta jornada y todos sus partidos?')) {
+            engine.borrarJornada(b.getAttribute('data-id'));
+            loadJornadasManager();
+          }
+        });
+      });
+    }
+
+    if (mgrSel) {
+      mgrSel.innerHTML = '';
+      jornadas.forEach(j => {
+        const opt = document.createElement('option');
+        opt.value = j.id;
+        opt.textContent = `${j.fecha} (${j.modalidad})`;
+        mgrSel.appendChild(opt);
+      });
+
+      if (!mgrJornadaId || !jornadas.some(j => j.id === mgrJornadaId)) {
+        mgrJornadaId = jornadas.length ? jornadas[0].id : '';
+      }
+      mgrSel.value = mgrJornadaId;
+      loadManagerCategories();
+    }
+  }
+
+  function loadManagerCategories() {
+    const jornadas = engine.getJornadas();
+    const j = jornadas.find(x => x.id === mgrJornadaId);
+    const catSel = document.getElementById('mgrSelectCategoria');
+    if (!catSel || !j) return;
+
+    const cats = CATEGORIAS[j.modalidad] || [];
+    catSel.innerHTML = '';
+    cats.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      catSel.appendChild(opt);
+    });
+
+    if (!mgrCategory || !cats.includes(mgrCategory)) {
+      mgrCategory = cats[0] || '';
+    }
+    catSel.value = mgrCategory;
+    renderManagerCategoryDetails();
+  }
+
+  function renderManagerCategoryDetails() {
+    if (!mgrJornadaId || !mgrCategory) return;
+    const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
+
+    // Toggle doubles vs single form
+    const isDoubles = mgrCategory.startsWith('D');
+    document.getElementById('singlePlayerInputArea').style.display = isDoubles ? 'none' : 'block';
+    document.getElementById('doublesPlayerInputArea').style.display = isDoubles ? 'grid' : 'none';
+
+    // Count
+    document.getElementById('inscritosCount').textContent = detail.participantes.length.toString();
+
+    // Render inscribed list
+    const container = document.getElementById('inscritosListContainer');
+    if (container) {
+      if (detail.participantes.length === 0) {
+        container.innerHTML = '<div class="text-muted text-center" style="padding:10px;">Aún no hay inscritos en esta categoría.</div>';
+      } else {
+        let html = '';
+        detail.participantes.forEach(p => {
+          html += `
+            <div class="glass-card flex-between" style="padding:8px 12px; margin-bottom:8px; background:rgba(255,255,255,0.03);">
+              <span style="font-size:13px; font-weight:600;">${escapeHtml(p.nombres.join(' / '))}</span>
+              ${!detail.competicion ? `<button class="btn btn-danger btn-sm remove-inscrito-btn" data-id="${p.id}" style="padding:2px 6px; font-size:10px;">Quitar ✕</button>` : ''}
+            </div>
+          `;
+        });
+        container.innerHTML = html;
+
+        container.querySelectorAll('.remove-inscrito-btn').forEach(b => {
+          b.addEventListener('click', () => {
+            engine.quitarInscrito(mgrJornadaId, mgrCategory, b.getAttribute('data-id'));
+            renderManagerCategoryDetails();
+          });
+        });
+      }
+    }
+
+    // Competition Setup Form visibility
+    const setupForm = document.getElementById('compSetupForm');
+    const activeActions = document.getElementById('compActiveActions');
+    const statusOverview = document.getElementById('compStatusOverview');
+
+    if (detail.competicion) {
+      if (setupForm) setupForm.style.display = 'none';
+      if (activeActions) activeActions.style.display = 'block';
+      if (statusOverview) {
+        statusOverview.innerHTML = `
+          <div class="badge badge-definitiva" style="font-size:13px; padding:6px 12px; width:100%; justify-content:center;">
+            Competición Activa: ${detail.competicion.sistema} (${detail.partidos.length} partidos)
+          </div>
+        `;
+      }
+    } else {
+      if (setupForm) setupForm.style.display = 'block';
+      if (activeActions) activeActions.style.display = 'none';
+      if (statusOverview) {
+        statusOverview.innerHTML = `
+          <div class="badge badge-borrador" style="font-size:12px; width:100%; justify-content:center;">
+            Sin competición creada
+          </div>
+        `;
+      }
+    }
+  }
+
+  // --- Rankings Logic ---
+  function initRankings() {
+    document.querySelectorAll('#levelSegmentRank button').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#levelSegmentRank button').forEach(x => x.classList.remove('active-level', 'btn-primary'));
+        b.classList.add('active-level', 'btn-primary');
+        rankLevel = b.getAttribute('data-level');
+        renderRankingsTable();
+      });
+    });
+
+    document.querySelectorAll('#typeTabsRank .cat-tab').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#typeTabsRank .cat-tab').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        rankType = b.getAttribute('data-type');
+        renderRankingsTable();
+      });
+    });
+
+    document.getElementById('searchRankPlayer')?.addEventListener('input', () => {
+      renderRankingsTable();
+    });
+
+    document.getElementById('btnExportRankJpg')?.addEventListener('click', () => exportRankingCanvas('jpg'));
+    document.getElementById('btnExportRankPdf')?.addEventListener('click', () => exportRankingCanvas('pdf'));
+  }
+
+  function renderRankingsTable() {
+    const data = engine.getRanking();
+    const container = document.getElementById('rankTableContainer');
+    const titleEl = document.getElementById('rankTableTitle');
+    if (!container) return;
+
+    const levelSegment = document.getElementById('levelSegmentRank');
+    const isSingle = rankType === 'IM' || rankType === 'IF';
+    if (levelSegment) levelSegment.style.display = isSingle ? 'flex' : 'none';
+
+    const catKey = isSingle ? `${rankType}-${rankLevel}` : rankType;
+    const catFullName = { IM: 'Individual Masculino', IF: 'Individual Femenino', DM: 'Dobles Masculino', DF: 'Dobles Femenino', DX: 'Dobles Mixtos' }[rankType];
+    
+    if (titleEl) {
+      titleEl.textContent = isSingle ? `${catFullName} · Nivel ${rankLevel}` : catFullName;
+    }
+
+    const seasonData = data.temporadas.find(t => t.id === rankSeason) || data.temporadas[0];
+    const catData = seasonData ? seasonData.categorias[catKey] : null;
+
+    if (!catData || catData.jugadores.length === 0) {
+      container.innerHTML = `<div class="text-muted text-center" style="padding:30px;">Aún no hay resultados de la categoría ${catKey} en la temporada.</div>`;
+      return;
+    }
+
+    const searchQ = document.getElementById('searchRankPlayer')?.value.toLowerCase().trim() || '';
+    let players = catData.jugadores;
+    if (searchQ) {
+      players = players.filter(j => j.nombre.toLowerCase().includes(searchQ));
+    }
+
+    let html = `
+      <table class="custom-table">
+        <thead>
+          <tr>
+            <th>Pos</th>
+            <th class="text-left">Jugador / Participante</th>
+            <th style="color:var(--accent-gold); font-size:14px;">Total 🏆</th>
+            ${catData.jornadas.map(j => `<th>J${j.n}<br/><small style="font-weight:400; color:var(--text-muted);">${j.fecha}</small></th>`).join('')}
+            <th>PG</th>
+            <th>PP</th>
+            <th>Dif. Partidos</th>
+            <th>PF</th>
+            <th>PC</th>
+            <th>Dif. Puntos</th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+    players.forEach(j => {
+      const posClass = j.pos === 1 ? 'rank-gold' : j.pos === 2 ? 'rank-silver' : j.pos === 3 ? 'rank-bronze' : '';
+      html += `
+        <tr>
+          <td class="${posClass}"><b>${j.pos}º</b></td>
+          <td class="text-left"><b>${escapeHtml(j.nombre)}</b></td>
+          <td style="font-weight:800; font-size:15px; color:var(--accent-gold);">${j.total}</td>
+          ${j.pts.map((p, idx) => {
+            const isTop = j.mejores.includes(p) && p !== null;
+            return `<td style="${isTop ? 'background:rgba(74,222,128,0.15); color:var(--accent-green); font-weight:700;' : ''}">${p !== null ? p : '-'}</td>`;
+          }).join('')}
+          <td class="text-green">${j.PG}</td>
+          <td class="text-red">${j.PP}</td>
+          <td>${j.difPartidos > 0 ? '+' : ''}${j.difPartidos}</td>
+          <td>${j.PF}</td>
+          <td>${j.PC}</td>
+          <td>${j.difPuntos > 0 ? '+' : ''}${j.difPuntos}</td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+  }
+
+  // Canvas Export for JPEG/PDF
+  function exportRankingCanvas(format) {
+    const data = engine.getRanking();
+    const isSingle = rankType === 'IM' || rankType === 'IF';
+    const catKey = isSingle ? `${rankType}-${rankLevel}` : rankType;
+    const seasonData = data.temporadas.find(t => t.id === rankSeason) || data.temporadas[0];
+    const catData = seasonData ? seasonData.categorias[catKey] : null;
+
+    if (!catData || catData.jugadores.length === 0) {
+      alert('No hay datos para exportar.');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 300 + catData.jugadores.length * 45;
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#090514';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Header Title
+    ctx.fillStyle = '#c4b5fd';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText(`Ranking ${catKey} · Temporada ${seasonData.etiqueta}`, 40, 60);
+
+    ctx.fillStyle = '#948aa9';
+    ctx.font = '20px sans-serif';
+    ctx.fillText('Liga de Bádminton de los Viernes UNI · Mejores 3 Jornadas', 40, 95);
+
+    // Table Headers
+    let startY = 140;
+    ctx.fillStyle = '#1e0d36';
+    ctx.fillRect(40, startY, 1120, 40);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('Pos', 50, startY + 26);
+    ctx.fillText('Jugador', 110, startY + 26);
+    ctx.fillText('Total', 380, startY + 26);
+    ctx.fillText('PG', 480, startY + 26);
+    ctx.fillText('PP', 560, startY + 26);
+    ctx.fillText('PF', 640, startY + 26);
+    ctx.fillText('PC', 720, startY + 26);
+
+    catData.jugadores.forEach((j, i) => {
+      const y = startY + 40 + i * 40;
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.2)';
+      ctx.fillRect(40, y, 1120, 38);
+
+      ctx.fillStyle = j.pos === 1 ? '#fbbf24' : j.pos === 2 ? '#9ca3af' : j.pos === 3 ? '#b45309' : '#ffffff';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(`${j.pos}º`, 50, y + 24);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '16px sans-serif';
+      ctx.fillText(j.nombre, 110, y + 24);
+
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(j.total.toString(), 380, y + 24);
+
+      ctx.fillStyle = '#4ade80';
+      ctx.fillText(j.PG.toString(), 480, y + 24);
+      ctx.fillStyle = '#f87171';
+      ctx.fillText(j.PP.toString(), 560, y + 24);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(j.PF.toString(), 640, y + 24);
+      ctx.fillText(j.PC.toString(), 720, y + 24);
+    });
+
+    if (format === 'jpg') {
+      const link = document.createElement('a');
+      link.download = `Ranking_${catKey}_${seasonData.id}.jpg`;
+      link.href = canvas.toDataURL('image/jpeg', 0.95);
+      link.click();
+    } else {
+      const link = document.createElement('a');
+      link.download = `Ranking_${catKey}_${seasonData.id}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+  }
+
+  // --- Google Sheets Logic ---
+  function initGoogleSheets() {
+    const inputUrl = document.getElementById('inputScriptUrl');
+    const inputPin = document.getElementById('inputScriptPin');
+    const displayContainer = document.getElementById('scriptCodeDisplayContainer');
+
+    if (inputUrl) inputUrl.value = engine.getWebAppUrl();
+    if (inputPin) inputPin.value = engine.getAdminPin();
+    if (displayContainer) displayContainer.textContent = APPS_SCRIPT_CODE;
+
+    document.getElementById('btnCopyScriptCode')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(APPS_SCRIPT_CODE);
+      alert('¡Código de Apps Script copiado al portapapeles!');
+    });
+
+    document.getElementById('btnTestAndSaveUrl')?.addEventListener('click', async () => {
+      const url = inputUrl.value.trim();
+      const pin = inputPin.value.trim();
+      engine.setWebAppUrl(url);
+      engine.setAdminPin(pin);
+
+      const statusBadge = document.getElementById('connStatusBadge');
+      const connText = document.getElementById('connectionStatusText');
+
+      if (!url) {
+        if (statusBadge) { statusBadge.className = 'badge badge-definitiva'; statusBadge.textContent = 'Modo Local Demo'; }
+        if (connText) connText.textContent = 'Modo Local (Demostración)';
+        alert('Configurado en Modo Local.');
+        return;
+      }
+
+      try {
+        const res = await engine.callRemote('getJornadas');
+        if (res) {
+          if (statusBadge) { statusBadge.className = 'badge badge-definitiva'; statusBadge.textContent = 'Conectado a Google Sheets'; }
+          if (connText) connText.textContent = '🟢 Google Sheets Conectado';
+          alert('¡Conexión con Google Sheets verificada correctamente!');
+        } else {
+          throw new Error('Sin respuesta del servidor.');
+        }
+      } catch (e) {
+        if (statusBadge) { statusBadge.className = 'badge badge-borrador'; statusBadge.textContent = 'Error de Conexión'; }
+        alert(`Error al conectar con la URL de Apps Script: ${e.message}`);
+      }
+    });
+
+    document.getElementById('btnSyncGoogleSheets')?.addEventListener('click', async () => {
+      const msg = document.getElementById('syncResultMsg');
+      if (msg) msg.textContent = 'Sincronizando con Google Sheets...';
+      const res = await engine.callRemote('getJornadas');
+      if (res) {
+        if (msg) msg.textContent = '¡Sincronización completada con éxito!';
+        loadJornadasVisualizer();
+      } else {
+        if (msg) msg.textContent = 'No se pudo conectar. Verifica la URL de Apps Script.';
+      }
+    });
+  }
+
+  // --- Utility ---
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>

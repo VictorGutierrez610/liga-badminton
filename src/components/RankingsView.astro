@@ -1,0 +1,64 @@
+---
+---
+
+<div id="view_rankings" class="tab-view" style="display:none;">
+  <!-- Rankings Controls Bar -->
+  <div class="glass-card flex-between flex-wrap gap-12">
+    <div class="flex-gap flex-wrap">
+      <select id="selectSeasonRank" class="form-select" style="min-width:160px;">
+        <option value="2026-27">Temporada 2026/27</option>
+      </select>
+
+      <div class="flex-gap" id="levelSegmentRank" style="background:rgba(0,0,0,0.3); padding:4px; border-radius:10px; border:1px solid var(--card-border);">
+        <button class="btn btn-secondary btn-sm active-level" data-level="A">Nivel A</button>
+        <button class="btn btn-secondary btn-sm" data-level="B">Nivel B</button>
+      </div>
+
+      <input type="text" id="searchRankPlayer" class="form-control" placeholder="Buscar jugador..." style="max-width:200px;" />
+    </div>
+
+    <div class="flex-gap">
+      <button class="btn btn-secondary btn-sm" id="btnExportRankJpg">
+        🖼️ Descargar JPEG
+      </button>
+      <button class="btn btn-secondary btn-sm" id="btnExportRankPdf">
+        📄 Descargar PDF
+      </button>
+    </div>
+  </div>
+
+  <!-- Category Selection Tabs -->
+  <div class="cat-tabs" id="typeTabsRank">
+    <button class="cat-tab active" data-type="IM">IM · Indiv. Masculino</button>
+    <button class="cat-tab" data-type="IF">IF · Indiv. Femenino</button>
+    <button class="cat-tab" data-type="DM">DM · Dobles Masculino</button>
+    <button class="cat-tab" data-type="DF">DF · Dobles Femenino</button>
+    <button class="cat-tab" data-type="DX">DX · Dobles Mixtos</button>
+  </div>
+
+  <!-- Main Rankings Table Card -->
+  <div class="glass-card">
+    <div class="flex-between flex-wrap gap-12" style="margin-bottom:14px;">
+      <div>
+        <h2 id="rankTableTitle" style="font-size:22px; font-weight:800; color:var(--text-main);">
+          Individual Masculino · Nivel A
+        </h2>
+        <p id="rankTableSubtitle" class="text-muted" style="font-size:13px; margin-top:2px;">
+          Liga de los Viernes UNI · Solo cuentan las 3 mejores jornadas de cada participante
+        </p>
+      </div>
+      <div id="rankUpdatedBadge" class="badge badge-definitiva" style="font-size:12px;">
+        Actualizado hoy
+      </div>
+    </div>
+
+    <div class="table-container" id="rankTableContainer">
+      <!-- Populated by JS -->
+    </div>
+
+    <div class="text-muted" style="font-size:12px; margin-top:14px; line-height:1.6; padding-top:12px; border-top:1px solid rgba(255,255,255,0.05);">
+      💡 <b>Reglas de Puntuación:</b> Cada jugador suma los puntos de sus <b>3 mejores jornadas</b> (destacadas en verde).<br />
+      <b>Desempates:</b> 1) Puntos totales de las mejores jornadas, 2) Victorias (PG), 3) Diferencia de Partidos, 4) Diferencia de Puntos (PF - PC), 5) Puntos a favor.
+    </div>
+  </div>
+</div>
