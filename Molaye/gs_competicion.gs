@@ -1,5 +1,5 @@
 // ===================== CONFIGURACIÓN =====================
-const SHEET_ID = '19DM6m4Cq5Lxo8NwN1z5d1f12Ar4eAgIpsIjmFZ3qaHw';
+const SHEET_ID = '1e-_IZAV4YTyBhgyUFmlCl3iaLeYmYkoGxXFtXlaZcu0';
 
 // PIN que tendréis que escribir tú y el presidente para entrar en la página.
 // Cámbialo por el vuestro. Si lo dejas vacío ('') no se pide PIN.

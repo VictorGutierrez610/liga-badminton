@@ -1,7 +1,7 @@
 // Core engine for Liga Badminton Fridays - replicating logic from gs_competicion.gs & ranking.gs
 // Supports both live Google Apps Script Web App connection and local storage simulation.
 
-const DEFAULT_SHEET_ID = '19DM6m4Cq5Lxo8NwN1z5d1f12Ar4eAgIpsIjmFZ3qaHw';
+const DEFAULT_SHEET_ID = '1e-_IZAV4YTyBhgyUFmlCl3iaLeYmYkoGxXFtXlaZcu0';
 
 export const RONDAS = ['Fase de grupos', 'Dieciseisavos', 'Octavos', 'Cuartos', 'Semifinal', 'Final'];
 
@@ -532,7 +532,7 @@ class BadmintonEngine {
         st.PP += isWinner ? 0 : 1;
         st.PF += isTeamA ? pfA : pfB;
         st.PC += isTeamA ? pfB : pfA;
-        
+
         // Puntos estimativos por jornada para ranking
         const ptsMatch = isWinner ? 25 : 10;
         st.porJornada[p.jornada] = (st.porJornada[p.jornada] || 0) + ptsMatch;
