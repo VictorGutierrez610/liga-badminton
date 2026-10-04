@@ -3,8 +3,8 @@ export const APPS_SCRIPT_CODE = `// ============================================
 //  ID Hoja: 19DM6m4Cq5Lxo8NwN1z5d1f12Ar4eAgIpsIjmFZ3qaHw
 // =====================================================================
 
-const SHEET_ID = '19DM6m4Cq5Lxo8NwN1z5d1f12Ar4eAgIpsIjmFZ3qaHw';
-const PIN_ADMIN = ''; // Opcional: Escribe aquí tu PIN o déjalo vacío
+const SHEET_ID = '1wjKLBnakvjzdUmiio_BqTRSpP9Q9TONOmX37PwsbdtI';
+const PIN_ADMIN = 'Determinado por la administración'; // Opcional: Escribe aquí tu PIN o déjalo vacío
 
 function doPost(e) {
   try {
