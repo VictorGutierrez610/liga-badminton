@@ -28,6 +28,7 @@ function doPost(e) {
 
     if      (action === 'getSocios')               result = getSocios();
     else if (action === 'getJornadas')             result = getJornadas();
+    else if (action === 'getAllData')              result = getAllData();
     else if (action === 'crearJornada')            result = crearJornada(request.jornada);
     else if (action === 'guardarJornadaDefinitiva')result = guardarJornadaDefinitiva(request.idJornada);
     else if (action === 'borrarJornada')           result = borrarJornada(request.idJornada);
@@ -86,11 +87,58 @@ function getJornadas() {
   const sheet = getOrCreateSheet('Jornadas',
     ['ID','Fecha','Modalidad','Formato','Desde','PuntosSet','GanarPor2','Estado']);
   return sheetRows(sheet).filter(r => r[0]).map(r => ({
-    id: String(r[0]), fecha: r[1], modalidad: r[2], formato: r[3], desde: r[4],
+    id: String(r[0]), fecha: formatSheetDate(r[1]), modalidad: r[2], formato: r[3], desde: r[4],
     puntosSet: Number(r[5]) || 15,
-    ganarPor2: r[6] === true || r[6] === 'VERDADERO' || r[6] === 'TRUE',
+    ganarPor2: r[6] === true || String(r[6]).toUpperCase() === 'VERDADERO' || String(r[6]).toUpperCase() === 'TRUE',
     definitiva: r[7] === 'Definitiva', partidos: 0
   }));
+}
+
+function getAllData() {
+  const inscritos = {};
+  sheetRows(getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']))
+    .filter(r => r[0] && r[1]).forEach(r => {
+      const key = String(r[0]) + '_' + String(r[1]);
+      const ids = String(r[3] || '').split('|').filter(Boolean);
+      if (!ids.length) ids.push(...String(r[2] || '').split('+').filter(Boolean));
+      const participantId = String(r[2] || ids.join('+'));
+      if (!inscritos[key]) inscritos[key] = [];
+      inscritos[key].push({
+        id: participantId,
+        ids,
+        nombres: String(r[4] || '').split(' / ').filter(Boolean)
+      });
+    });
+
+  const competiciones = {};
+  sheetRows(getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']))
+    .filter(r => r[0] && r[1]).forEach(r => {
+      competiciones[String(r[0]) + '_' + String(r[1])] = {
+        sistema: r[2], grupos: Number(r[3]) || 0, clasifican: Number(r[4]) || 0
+      };
+    });
+
+  const partidos = sheetRows(getOrCreateSheet('Partidos', _hP()))
+    .filter(r => r[0]).map(r => {
+      let sets = [];
+      try { sets = JSON.parse(r[12] || '[]'); } catch (err) { sets = []; }
+      return {
+        id: String(r[0]), jornada: String(r[1]), fecha: formatSheetDate(r[2]),
+        categoria: r[3], ronda: r[4], grupo: r[5] || '', orden: Number(r[6]) || 0,
+        estado: r[7] || 'Pendiente', idsA: String(r[8] || '').split('|').filter(Boolean),
+        nomA: String(r[9] || '').split(' / ').filter(Boolean),
+        idsB: String(r[10] || '').split('|').filter(Boolean),
+        nomB: String(r[11] || '').split(' / ').filter(Boolean),
+        sets: Array.isArray(sets) ? sets : [], ganador: r[13] || '', registrado: ''
+      };
+    });
+
+  return { socios: getSocios(), jornadas: getJornadas(), inscritos, competiciones, partidos };
+}
+
+function formatSheetDate(value) {
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return value == null ? '' : String(value);
 }
 
 function crearJornada(j) {

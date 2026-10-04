@@ -38,10 +38,13 @@
       <table class="custom-table">
         <thead>
           <tr>
+            <th>ID</th>
             <th class="text-left">Fecha</th>
             <th>Modalidad</th>
             <th>Formato Base</th>
+            <th>Desde</th>
             <th>Pts / Set</th>
+            <th>Ganar por 2</th>
             <th>Partidos</th>
             <th>Estado</th>
             <th>Acciones</th>
@@ -171,6 +174,19 @@
       </div>
     </div>
   </div>
+
+  <div class="glass-card" style="margin-top:16px;">
+    <div class="flex-between flex-wrap gap-12" style="margin-bottom:12px;">
+      <div>
+        <h2 style="font-size:18px; font-weight:700;">Partidos y puntuaciones</h2>
+        <p class="text-muted" style="font-size:13px;">Detalle de la categoría seleccionada, alineado con las columnas de la pestaña Partidos.</p>
+      </div>
+      <div id="managerCompetitionConfig" class="text-muted" style="font-size:13px;"></div>
+    </div>
+    <div id="managerMatchDetails" class="table-container">
+      <!-- Populated by JS -->
+    </div>
+  </div>
 </div>
 
 <!-- Modal: New Jornada -->
@@ -203,6 +219,15 @@
           <option value="TRES">Mejor de 3 sets (15 pts)</option>
           <option value="MIXTO">Mixto (1 set en grupos, mejor de 3 en elim.)</option>
         </select>
+      </div>
+
+      <div class="form-group" id="newJornadaDesdeGroup" style="display:none;">
+        <label class="form-label">Desde (para formato mixto):</label>
+        <input type="text" id="newJornadaDesde" class="form-control" placeholder="Fase eliminatoria" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label"><input type="checkbox" id="newJornadaGanarPor2" /> Ganar por 2 puntos</label>
       </div>
 
       <div class="form-group">

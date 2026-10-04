@@ -703,7 +703,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     selectedScoreMatch = null;
   }
 
-  function saveScoreModal(e) {
+  async function saveScoreModal(e) {
     e.preventDefault();
     if (!selectedScoreMatch) return;
 
@@ -726,7 +726,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
 
     try {
-      engine.guardarResultado(selectedScoreMatch.id, sets);
+      await engine.guardarResultado(selectedScoreMatch.id, sets);
       closeScoreModal();
       renderCategoryVisuals();
     } catch (err) {
@@ -735,10 +735,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
   }
 
-  function deleteScoreModal() {
+  async function deleteScoreModal() {
     if (!selectedScoreMatch) return;
     try {
-      engine.borrarResultado(selectedScoreMatch.id);
+      await engine.borrarResultado(selectedScoreMatch.id);
       closeScoreModal();
       renderCategoryVisuals();
     } catch (err) {
@@ -776,15 +776,17 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     document
       .getElementById("newJornadaForm")
-      ?.addEventListener("submit", (e) => {
+      ?.addEventListener("submit", async (e) => {
         e.preventDefault();
         const fecha = document.getElementById("newJornadaFecha").value;
         const modalidad = document.getElementById("newJornadaModalidad").value;
         const formato = document.getElementById("newJornadaFormato").value;
         const puntosSet = document.getElementById("newJornadaPuntos").value;
+        const desde = (document.getElementById("newJornadaDesde") as HTMLInputElement).value.trim();
+        const ganarPor2 = (document.getElementById("newJornadaGanarPor2") as HTMLInputElement).checked;
 
         try {
-          engine.crearJornada({ fecha, modalidad, formato, puntosSet });
+          await engine.crearJornada({ fecha, modalidad, formato, puntosSet, desde, ganarPor2 });
           document.getElementById("newJornadaModal").style.display = "none";
           loadJornadasManager();
           loadJornadasVisualizer();
@@ -792,6 +794,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           document.getElementById("newJornadaError").textContent = err.message;
         }
       });
+
+    document.getElementById("newJornadaFormato")?.addEventListener("change", (event) => {
+      const desdeGroup = document.getElementById("newJornadaDesdeGroup");
+      const formato = (event.currentTarget as HTMLSelectElement).value;
+      if (desdeGroup) desdeGroup.style.display = formato === "MIXTO" ? "block" : "none";
+    });
 
     // Inscription Inputs
     setupAutocomplete("inputSearchPlayerSingle", "suggestBoxSingle", (s) => {
@@ -841,8 +849,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       if (btn) btn.classList.add("loading");
       if (msg) { msg.style.color = "var(--text-muted)"; msg.textContent = "Guardando en Google Sheets…"; }
       try {
-        await engine.syncAllToSheets();
-        if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Datos guardados en Google Sheets."; }
+        const res = await engine.syncAllToSheets();
+        if (res) {
+          if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = `✅ ${res.jornadas} jornada(s) y ${res.partidos} partido(s) guardados en Google Sheets.`; }
+        } else if (msg) {
+          msg.style.color = "#fbbf24";
+          msg.textContent = "⚠️ Modo local: configura y verifica la conexión para guardar en Sheets.";
+        }
       } catch (err) {
         if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
@@ -1014,7 +1027,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       renderManagerCategoryDetails();
       loadJornadasVisualizer();
       const msg = document.getElementById("compSheetsMsg");
-      if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Competici\u00f3n y partidos guardados en Sheets."; }
+      if (msg) {
+        const remoteConfigured = Boolean(engine.getWebAppUrl());
+        msg.style.color = remoteConfigured ? "var(--accent-green)" : "#fbbf24";
+        msg.textContent = remoteConfigured
+          ? "✅ Competición y partidos guardados en Sheets."
+          : "⚠️ Competición creada en modo local; no se ha enviado a Sheets.";
+      }
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
     }
@@ -1031,10 +1050,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       jornadas.forEach((j) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td class="text-left"><b>${j.fecha}</b></td>
-          <td>${j.modalidad}</td>
-          <td>${j.formato}</td>
+          <td>${escapeHtml(j.id)}</td>
+          <td class="text-left"><b>${escapeHtml(j.fecha)}</b></td>
+          <td>${escapeHtml(j.modalidad)}</td>
+          <td>${escapeHtml(j.formato)}</td>
+          <td>${escapeHtml(j.desde || "—")}</td>
           <td>${j.puntosSet}</td>
+          <td>${j.ganarPor2 ? "Sí" : "No"}</td>
           <td>${j.partidos}</td>
           <td><span class="badge ${j.definitiva ? "badge-definitiva" : "badge-borrador"}">${j.definitiva ? "Definitiva" : "En Curso"}</span></td>
           <td>
@@ -1053,21 +1075,29 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
       // Actions
       tableBody.querySelectorAll(".finalize-jornada-btn").forEach((b) => {
-        b.addEventListener("click", () => {
-          engine.guardarJornadaDefinitiva(b.getAttribute("data-id"));
-          loadJornadasManager();
+        b.addEventListener("click", async () => {
+          try {
+            await engine.guardarJornadaDefinitiva(b.getAttribute("data-id"));
+            loadJornadasManager();
+          } catch (error) {
+            alert(`No se pudo guardar la jornada: ${error.message || error}`);
+          }
         });
       });
 
       tableBody.querySelectorAll(".delete-jornada-btn").forEach((b) => {
-        b.addEventListener("click", () => {
+        b.addEventListener("click", async () => {
           if (
             confirm(
               "¿Seguro que deseas borrar esta jornada y todos sus partidos?",
             )
           ) {
-            engine.borrarJornada(b.getAttribute("data-id"));
-            loadJornadasManager();
+            try {
+              await engine.borrarJornada(b.getAttribute("data-id"));
+              loadJornadasManager();
+            } catch (error) {
+              alert(`No se pudo borrar la jornada: ${error.message || error}`);
+            }
           }
         });
       });
@@ -1140,7 +1170,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         detail.participantes.forEach((p) => {
           html += `
             <div class="glass-card flex-between" style="padding:8px 12px; margin-bottom:8px; background:rgba(255,255,255,0.03);">
-              <span style="font-size:13px; font-weight:600;">${escapeHtml(p.nombres.join(" / "))}</span>
+              <span style="font-size:13px; font-weight:600;">${escapeHtml(p.nombres.join(" / "))}<small class="text-muted" style="display:block;">ID: ${escapeHtml(p.id)} · Participantes: ${escapeHtml((p.ids || []).join("|"))}</small></span>
               ${!detail.competicion ? `<button class="btn btn-danger btn-sm remove-inscrito-btn" data-id="${p.id}" style="padding:2px 6px; font-size:10px;">Quitar ✕</button>` : ""}
             </div>
           `;
@@ -1148,13 +1178,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         container.innerHTML = html;
 
         container.querySelectorAll(".remove-inscrito-btn").forEach((b) => {
-          b.addEventListener("click", () => {
-            engine.quitarInscrito(
-              mgrJornadaId,
-              mgrCategory,
-              b.getAttribute("data-id"),
-            );
-            renderManagerCategoryDetails();
+          b.addEventListener("click", async () => {
+            try {
+              await engine.quitarInscrito(mgrJornadaId, mgrCategory, b.getAttribute("data-id"));
+              renderManagerCategoryDetails();
+            } catch (error) {
+              const errorEl = document.getElementById("inscriptionFormError");
+              if (errorEl) errorEl.textContent = `No se pudo quitar el inscrito: ${error instanceof Error ? error.message : String(error)}`;
+            }
           });
         });
       }
@@ -1186,6 +1217,51 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         `;
       }
     }
+
+    const configEl = document.getElementById("managerCompetitionConfig");
+    if (configEl) {
+      const comp = detail.competicion;
+      configEl.textContent = comp
+        ? `${comp.sistema} · ${comp.grupos || 0} grupo(s) · ${comp.clasifican || 0} clasifican`
+        : "Sin configuración de competición";
+    }
+    renderManagerMatchDetails(detail.partidos);
+  }
+
+  function renderManagerMatchDetails(matches) {
+    const container = document.getElementById("managerMatchDetails");
+    if (!container) return;
+    if (!matches.length) {
+      container.innerHTML = '<div class="text-muted text-center" style="padding:14px;">Todavía no hay partidos para esta categoría.</div>';
+      return;
+    }
+
+    const rows = matches.map((match) => {
+      const teamA = (match.nomA || []).join(" / ");
+      const teamB = (match.nomB || []).join(" / ");
+      const idsA = (match.idsA || []).join("|");
+      const idsB = (match.idsB || []).join("|");
+      const score = (match.sets || []).map((set) => `${set[0]}-${set[1]}`).join(", ") || "—";
+      const winner = match.ganador === "A" ? teamA : match.ganador === "B" ? teamB : "—";
+      return `<tr>
+        <td>${escapeHtml(match.id)}</td>
+        <td>${escapeHtml(match.fecha || "")}</td>
+        <td>${escapeHtml(match.categoria || "")}</td>
+        <td>${escapeHtml(match.ronda || "")}</td>
+        <td>${escapeHtml(match.grupo || "—")}</td>
+        <td>${escapeHtml(match.orden ?? "")}</td>
+        <td>${escapeHtml(match.estado || "Pendiente")}</td>
+        <td>${escapeHtml(teamA)}<small class="text-muted" style="display:block;">${escapeHtml(idsA)}</small></td>
+        <td>${escapeHtml(teamB)}<small class="text-muted" style="display:block;">${escapeHtml(idsB)}</small></td>
+        <td>${escapeHtml(score)}</td>
+        <td>${escapeHtml(winner)}</td>
+      </tr>`;
+    }).join("");
+
+    container.innerHTML = `<table class="custom-table">
+      <thead><tr><th>ID</th><th>Fecha</th><th>Categoría</th><th>Ronda</th><th>Grupo</th><th>Orden</th><th>Estado</th><th>Equipo A</th><th>Equipo B</th><th>Sets</th><th>Ganador</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
   }
 
   // --- Rankings Logic ---
@@ -1463,17 +1539,15 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         }
 
         try {
-          const res = await engine.callRemote("getJornadas");
-          if (res) {
-            if (statusBadge) {
-              statusBadge.className = "badge badge-definitiva";
-              statusBadge.textContent = "Conectado a Google Sheets";
-            }
-            if (connText) connText.textContent = "🟢 Google Sheets Conectado";
-            alert("¡Conexión con Google Sheets verificada correctamente!");
-          } else {
-            throw new Error("Sin respuesta del servidor.");
+          await engine.fetchAllFromSheets();
+          if (statusBadge) {
+            statusBadge.className = "badge badge-definitiva";
+            statusBadge.textContent = "Conectado a Google Sheets";
           }
+          if (connText) connText.textContent = "🟢 Google Sheets Conectado";
+          loadJornadasManager();
+          loadJornadasVisualizer();
+          alert("¡Conexión con Google Sheets verificada correctamente!");
         } catch (e) {
           if (statusBadge) {
             statusBadge.className = "badge badge-borrador";
@@ -1487,15 +1561,15 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       .getElementById("btnSyncGoogleSheets")
       ?.addEventListener("click", async () => {
         const msg = document.getElementById("syncResultMsg");
-        if (msg) msg.textContent = "Sincronizando con Google Sheets...";
-        const res = await engine.callRemote("getJornadas");
-        if (res) {
-          if (msg) msg.textContent = "¡Sincronización completada con éxito!";
+        if (msg) msg.textContent = "Guardando todos los datos en Google Sheets...";
+        try {
+          const res = await engine.syncAllToSheets();
+          if (!res) throw new Error("Configura una conexión válida antes de sincronizar.");
+          if (msg) msg.textContent = `Guardado completado: ${res.jornadas} jornada(s), ${res.partidos} partido(s).`;
+          loadJornadasManager();
           loadJornadasVisualizer();
-        } else {
-          if (msg)
-            msg.textContent =
-              "No se pudo conectar. Verifica la URL de Apps Script.";
+        } catch (error) {
+          if (msg) msg.textContent = `No se pudo guardar en Sheets: ${error instanceof Error ? error.message : String(error)}`;
         }
       });
   }

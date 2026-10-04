@@ -158,7 +158,7 @@ class BadmintonEngine {
   }
 
   // --- Conexión remota con Google Apps Script ---
-  async callRemote(action, payload = {}) {
+  async callRemote(action, payload = {}, { strict = false } = {}) {
     const url = this.getWebAppUrl();
     if (!url || url.includes('TU_SCRIPT_ID_DESPLEGADO')) {
       console.warn('URL de Apps Script no configurada. Trabajando en modo local.');
@@ -173,10 +173,15 @@ class BadmintonEngine {
         body: JSON.stringify({ action, pin, ...payload })
       });
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      if (!response.ok || data.error || data.success === false) {
+        throw new Error(data.error || `Error HTTP ${response.status}`);
+      }
+      this.lastRemoteError = '';
       return data.result;
     } catch (e) {
       console.warn('Llamada a Google Apps Script fallida, recurriendo a datos locales:', e);
+      this.lastRemoteError = e.message || String(e);
+      if (strict) throw e;
       return null;
     }
   }
@@ -210,6 +215,21 @@ class BadmintonEngine {
     return this.getJornadas();
   }
 
+  async fetchAllFromSheets() {
+    const remote = await this.callRemote('getAllData', {}, { strict: true });
+    if (!remote || !Array.isArray(remote.jornadas) || !Array.isArray(remote.partidos)) {
+      throw new Error('Apps Script no devolvió el conjunto de datos esperado.');
+    }
+
+    this.socios = Array.isArray(remote.socios) ? remote.socios : this.socios;
+    this.jornadas = remote.jornadas;
+    this.inscritos = remote.inscritos || {};
+    this.competiciones = remote.competiciones || {};
+    this.partidos = remote.partidos;
+    this.saveState();
+    return remote;
+  }
+
   getJornadas() {
     const cuenta = {};
     this.partidos.forEach(p => {
@@ -224,13 +244,7 @@ class BadmintonEngine {
   }
 
   async crearJornada(data) {
-    const remoteRes = await this.callRemote('crearJornada', { jornada: data });
-    if (remoteRes) {
-      await this.fetchJornadas();
-      return remoteRes;
-    }
-
-    const id = 'J' + String(data.fecha).replace(/-/g, '');
+    const id = data.id || 'J' + String(data.fecha).replace(/-/g, '');
     if (this.jornadas.some(j => j.id === id)) {
       throw new Error('Ya existe una jornada para esa fecha.');
     }
@@ -245,13 +259,20 @@ class BadmintonEngine {
       definitiva: false,
       partidos: 0
     };
+
+    const remoteRes = await this.callRemote('crearJornada', { jornada: nueva }, { strict: true });
+    if (remoteRes) {
+      await this.fetchJornadas();
+      return remoteRes;
+    }
+
     this.jornadas.push(nueva);
     this.saveState();
     return nueva;
   }
 
   async guardarJornadaDefinitiva(idJornada) {
-    await this.callRemote('guardarJornadaDefinitiva', { idJornada });
+    await this.callRemote('guardarJornadaDefinitiva', { idJornada }, { strict: true });
     const j = this.jornadas.find(x => x.id === idJornada);
     if (!j) throw new Error('No se encuentra la jornada.');
     j.definitiva = true;
@@ -260,7 +281,7 @@ class BadmintonEngine {
   }
 
   async borrarJornada(idJornada) {
-    await this.callRemote('borrarJornada', { idJornada });
+    await this.callRemote('borrarJornada', { idJornada }, { strict: true });
     const j = this.jornadas.find(x => x.id === idJornada);
     if (!j) throw new Error('No se encuentra la jornada.');
     if (j.definitiva) throw new Error('La jornada es definitiva y no se puede borrar.');
@@ -315,14 +336,14 @@ class BadmintonEngine {
 
     const nombres = ids.map(id => this.getNombreSocio(id));
     // Enviar a Sheets (con nombres para que quede legible)
-    await this.callRemote('anadirInscrito', { idJornada, categoria, ids, nombres });
+    await this.callRemote('anadirInscrito', { idJornada, categoria, ids, nombres }, { strict: true });
     list.push({ id: partId, ids, nombres });
     this.saveState();
     return true;
   }
 
   async quitarInscrito(idJornada, categoria, idPart) {
-    await this.callRemote('quitarInscrito', { idJornada, categoria, idPart });
+    await this.callRemote('quitarInscrito', { idJornada, categoria, idPart }, { strict: true });
     const key = `${idJornada}_${categoria}`;
     if (this.competiciones[key]) {
       throw new Error('La competición ya ha sido creada.');
@@ -342,12 +363,13 @@ class BadmintonEngine {
 
     const j = this.jornadas.find(x => x.id === idJornada);
     const newMatches = [];
+    let competitionConfig;
 
     if (cfg.sistema === 'LIGA') {
       const allIds = insc.map(x => x.id);
       const matches = this.generateRoundRobin(j, categoria, 'Único', allIds, insc);
       newMatches.push(...matches);
-      this.competiciones[key] = { sistema: 'LIGA', grupos: 1, clasifican: 0 };
+      competitionConfig = { sistema: 'LIGA', grupos: 1, clasifican: 0 };
     } else if (cfg.sistema === 'GRUPOS') {
       const grupos = cfg.grupos || [];
       grupos.forEach((g, idx) => {
@@ -355,24 +377,25 @@ class BadmintonEngine {
         const matches = this.generateRoundRobin(j, categoria, groupName, g, insc);
         newMatches.push(...matches);
       });
-      this.competiciones[key] = { sistema: 'GRUPOS', grupos: grupos.length, clasifican: Number(cfg.clasifican) || 2 };
+      competitionConfig = { sistema: 'GRUPOS', grupos: grupos.length, clasifican: Number(cfg.clasifican) || 2 };
     } else if (cfg.sistema === 'ELIM') {
       const seeds = cfg.seeds || [];
       const matches = this.generateKnockout(j, categoria, seeds, insc);
       newMatches.push(...matches);
-      this.competiciones[key] = { sistema: 'ELIM', grupos: 0, clasifican: 0 };
+      competitionConfig = { sistema: 'ELIM', grupos: 0, clasifican: 0 };
     }
-
-    this.partidos.push(...newMatches);
-    this.saveState();
 
     // Enviar competicion + partidos a Google Sheets
     await this.callRemote('crearCompeticion', {
       idJornada,
       categoria,
-      cfg: this.competiciones[key],
+      cfg: competitionConfig,
       partidos: newMatches
-    });
+    }, { strict: true });
+
+    this.competiciones[key] = competitionConfig;
+    this.partidos.push(...newMatches);
+    this.saveState();
 
     return true;
   }
@@ -380,7 +403,7 @@ class BadmintonEngine {
   async borrarCompeticion(idJornada, categoria) {
     const key = `${idJornada}_${categoria}`;
     // Eliminar de Sheets
-    await this.callRemote('borrarCompeticion', { idJornada, categoria });
+    await this.callRemote('borrarCompeticion', { idJornada, categoria }, { strict: true });
     // Eliminar localmente
     delete this.competiciones[key];
     this.partidos = this.partidos.filter(p => !(p.jornada === idJornada && p.categoria === categoria));
@@ -396,7 +419,7 @@ class BadmintonEngine {
       competiciones: this.competiciones,
       partidos: this.partidos
     };
-    return await this.callRemote('syncAll', { data });
+    return await this.callRemote('syncAll', { data }, { strict: true });
   }
 
   generateRoundRobin(jornada, categoria, grupoName, participantIds, inscritos) {
@@ -563,7 +586,6 @@ class BadmintonEngine {
   }
 
   async guardarResultado(idPartido, sets) {
-    await this.callRemote('guardarResultado', { idPartido, sets });
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
 
@@ -571,17 +593,19 @@ class BadmintonEngine {
     sets.forEach(s => {
       if (s[0] > s[1]) setsA++; else setsB++;
     });
+    const ganador = setsA > setsB ? 'A' : 'B';
+    await this.callRemote('guardarResultado', { idPartido, sets, ganador }, { strict: true });
 
     p.sets = sets;
     p.estado = 'Jugado';
-    p.ganador = setsA > setsB ? 'A' : 'B';
+    p.ganador = ganador;
     p.registrado = Date.now();
     this.saveState();
     return true;
   }
 
   async borrarResultado(idPartido) {
-    await this.callRemote('borrarResultado', { idPartido });
+    await this.callRemote('borrarResultado', { idPartido }, { strict: true });
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
     p.sets = [];
