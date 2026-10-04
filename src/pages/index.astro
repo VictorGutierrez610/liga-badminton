@@ -81,13 +81,14 @@ import GoogleSheetsConnect from '../components/GoogleSheetsConnect.astro';
       alert('Has salido del Modo Administrador. Ahora estás en Modo Espectador.');
     });
 
-    form?.addEventListener('submit', (e) => {
+    form?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const entered = pinInput ? pinInput.value : '';
       if (errBox) errBox.textContent = '';
 
       try {
         engine.verifyAndLoginAdmin(entered);
+        await engine.fetchSocios(); // Load remote socios after admin login
         closeAdminModal();
         updateAdminUI();
         alert('¡Bienvenido! Has accedido correctamente al Modo Administrador.');
