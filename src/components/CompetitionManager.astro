@@ -23,10 +23,16 @@
         <h2 style="font-size:20px; font-weight:700;">Gestión de Jornadas</h2>
         <p class="text-muted" style="font-size:13px;">Crea nuevas jornadas de viernes o administra las existentes.</p>
       </div>
-      <button class="btn btn-primary" id="btnOpenNewJornadaModal">
-        ➕ Nueva Jornada
-      </button>
+      <div class="flex-gap">
+        <button class="btn btn-secondary btn-sm" id="btnSyncAllSheets" title="Vuelca TODOS los datos locales a Google Sheets">
+          ☁️ Sincronizar Todo con Sheets
+        </button>
+        <button class="btn btn-primary" id="btnOpenNewJornadaModal">
+          ➕ Nueva Jornada
+        </button>
+      </div>
     </div>
+    <div id="syncAllMsg" style="font-size:12px; color:var(--accent-green); margin-bottom:8px; display:none;"></div>
 
     <div class="table-container">
       <table class="custom-table">
@@ -154,9 +160,13 @@
           <button class="btn btn-secondary btn-sm" id="btnGenerateEliminatoria" style="margin-bottom:8px; width:100%;">
             ⚔️ Generar Cuadro Eliminatorio Final
           </button>
-          <button class="btn btn-danger btn-sm" id="btnResetCompetition" style="width:100%;">
-            ⚠️ Reiniciar / Borrar Competición
+          <button class="btn btn-primary btn-sm sync-comp-btn" id="btnSaveCompSheets" style="margin-bottom:8px; width:100%;">
+            ☁️ Guardar Competición en Google Sheets
           </button>
+          <button class="btn btn-danger btn-sm" id="btnResetCompetition" style="width:100%;">
+            🗑️ Borrar Competición (local + Sheets)
+          </button>
+          <div id="compSheetsMsg" style="font-size:12px; margin-top:6px; text-align:center;"></div>
         </div>
       </div>
     </div>
@@ -238,5 +248,15 @@
   .suggest-item:hover {
     background: var(--primary);
     color: #fff;
+  }
+
+  .sync-comp-btn.loading {
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  #syncAllMsg, #compSheetsMsg {
+    padding: 4px 0;
+    font-weight: 600;
   }
 </style>

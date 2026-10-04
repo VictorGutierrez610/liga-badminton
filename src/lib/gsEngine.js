@@ -300,7 +300,6 @@ class BadmintonEngine {
 
   // --- Inscripciones ---
   async anadirInscrito(idJornada, categoria, ids) {
-    await this.callRemote('anadirInscrito', { idJornada, categoria, ids });
     const key = `${idJornada}_${categoria}`;
     if (this.competiciones[key]) {
       throw new Error('La competición ya ha sido creada. No se pueden añadir participantes.');
@@ -315,6 +314,8 @@ class BadmintonEngine {
     }
 
     const nombres = ids.map(id => this.getNombreSocio(id));
+    // Enviar a Sheets (con nombres para que quede legible)
+    await this.callRemote('anadirInscrito', { idJornada, categoria, ids, nombres });
     list.push({ id: partId, ids, nombres });
     this.saveState();
     return true;
@@ -335,7 +336,6 @@ class BadmintonEngine {
 
   // --- Competiciones y Partidos ---
   async crearCompeticion(idJornada, categoria, cfg) {
-    await this.callRemote('crearCompeticion', { idJornada, categoria, cfg });
     const key = `${idJornada}_${categoria}`;
     const insc = this.inscritos[key] || [];
     if (insc.length < 2) throw new Error('Hacen falta al menos 2 participantes.');
@@ -365,7 +365,38 @@ class BadmintonEngine {
 
     this.partidos.push(...newMatches);
     this.saveState();
+
+    // Enviar competicion + partidos a Google Sheets
+    await this.callRemote('crearCompeticion', {
+      idJornada,
+      categoria,
+      cfg: this.competiciones[key],
+      partidos: newMatches
+    });
+
     return true;
+  }
+
+  async borrarCompeticion(idJornada, categoria) {
+    const key = `${idJornada}_${categoria}`;
+    // Eliminar de Sheets
+    await this.callRemote('borrarCompeticion', { idJornada, categoria });
+    // Eliminar localmente
+    delete this.competiciones[key];
+    this.partidos = this.partidos.filter(p => !(p.jornada === idJornada && p.categoria === categoria));
+    this.saveState();
+    return true;
+  }
+
+  // Sincronización completa de todo el estado local a Google Sheets
+  async syncAllToSheets() {
+    const data = {
+      jornadas: this.jornadas,
+      inscritos: this.inscritos,
+      competiciones: this.competiciones,
+      partidos: this.partidos
+    };
+    return await this.callRemote('syncAll', { data });
   }
 
   generateRoundRobin(jornada, categoria, grupoName, participantIds, inscritos) {

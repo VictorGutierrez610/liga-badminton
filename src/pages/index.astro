@@ -834,6 +834,57 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       .getElementById("btnCreateCompetition")
       ?.addEventListener("click", handleCreateCompetition);
 
+    // --- Buttons: Guardar en Sheets / Borrar Competicion ─────────────
+    document.getElementById("btnSaveCompSheets")?.addEventListener("click", async () => {
+      const btn = document.getElementById("btnSaveCompSheets");
+      const msg = document.getElementById("compSheetsMsg");
+      if (btn) btn.classList.add("loading");
+      if (msg) { msg.style.color = "var(--text-muted)"; msg.textContent = "Guardando en Google Sheets…"; }
+      try {
+        await engine.syncAllToSheets();
+        if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Datos guardados en Google Sheets."; }
+      } catch (err) {
+        if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
+      } finally {
+        if (btn) btn.classList.remove("loading");
+      }
+    });
+
+    document.getElementById("btnResetCompetition")?.addEventListener("click", async () => {
+      if (!confirm("¿Borrar la competición y sus partidos tanto local como en Google Sheets?")) return;
+      const msg = document.getElementById("compSheetsMsg");
+      try {
+        await engine.borrarCompeticion(mgrJornadaId, mgrCategory);
+        if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Competición eliminada local y en Sheets."; }
+        renderManagerCategoryDetails();
+        loadJornadasVisualizer();
+      } catch (err) {
+        if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
+      }
+    });
+
+    // --- Sync All button ─────────────────────────────────────────────
+    document.getElementById("btnSyncAllSheets")?.addEventListener("click", async () => {
+      const btn = document.getElementById("btnSyncAllSheets");
+      const msg = document.getElementById("syncAllMsg");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ Sincronizando…"; }
+      if (msg) { msg.style.display = "block"; msg.style.color = "var(--text-muted)"; msg.textContent = "Volcando datos a Google Sheets…"; }
+      try {
+        const res = await engine.syncAllToSheets();
+        if (res && msg) {
+          msg.style.color = "var(--accent-green)";
+          msg.textContent = `✅ Sincronizado: ${res.jornadas} jornada(s) · ${res.partidos} partido(s) guardados.`;
+        } else if (msg) {
+          msg.style.color = "#fbbf24";
+          msg.textContent = "⚠️ Sin conexión con Sheets. Los datos se guardan localmente.";
+        }
+      } catch (err) {
+        if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "☁️ Sincronizar Todo con Sheets"; }
+      }
+    });
+
     // Manager selects
     document
       .getElementById("mgrSelectJornada")
@@ -891,7 +942,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     });
   }
 
-  function handleAddParticipant() {
+  async function handleAddParticipant() {
     const isDoubles = mgrCategory.startsWith("D");
     const ids = [];
     const errEl = document.getElementById("inscriptionFormError");
@@ -919,7 +970,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
 
     try {
-      engine.anadirInscrito(mgrJornadaId, mgrCategory, ids);
+      await engine.anadirInscrito(mgrJornadaId, mgrCategory, ids);
       // Reset
       selectedPlayerSingle = null;
       selectedPlayerP1 = null;
@@ -933,7 +984,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
   }
 
-  function handleCreateCompetition() {
+  async function handleCreateCompetition() {
     const errEl = document.getElementById("compSetupError");
     if (errEl) errEl.textContent = "";
 
@@ -959,9 +1010,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
 
     try {
-      engine.crearCompeticion(mgrJornadaId, mgrCategory, cfg);
+      await engine.crearCompeticion(mgrJornadaId, mgrCategory, cfg);
       renderManagerCategoryDetails();
       loadJornadasVisualizer();
+      const msg = document.getElementById("compSheetsMsg");
+      if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Competici\u00f3n y partidos guardados en Sheets."; }
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
     }
