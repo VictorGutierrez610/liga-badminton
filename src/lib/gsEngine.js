@@ -1,7 +1,13 @@
-// Core engine for Liga Badminton Fridays - replicating logic from gs_competicion.gs & ranking.gs
-// Supports both live Google Apps Script Web App connection and local storage simulation.
+// =====================================================================
+// gsEngine.js - LIGA DE BÁDMINTON DE LOS VIERNES
+// Conexión híbrida con Google Apps Script & Almacenamiento Local
+// =====================================================================
 
-const DEFAULT_SHEET_ID = '1e-_IZAV4YTyBhgyUFmlCl3iaLeYmYkoGxXFtXlaZcu0';
+// ID real de tu hoja de cálculo "Liguilla viernes"
+const DEFAULT_SHEET_ID = '1wjKLBnakvjzdUmiio_BqTRSpP9Q9TONOmX37PwsbdtI';
+
+// Coloca aquí la URL que te genera Google Apps Script al hacer la "Nueva Implementación"
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxzsCk9JfCn_oFw1N_aprDasb3-KnzznI5U7NKeV7Gi7oWnNiC9Jorx1nHXxbWZxPOl/exec';
 
 export const RONDAS = ['Fase de grupos', 'Dieciseisavos', 'Octavos', 'Cuartos', 'Semifinal', 'Final'];
 
@@ -12,30 +18,30 @@ export const CATEGORIAS = {
 };
 
 export const INITIAL_SOCIOS = [
-  { id: '1', nombre: 'Carlos', apellidos: 'García', sexo: 'M', categoria: 'A' },
-  { id: '2', nombre: 'Ana', apellidos: 'Martínez', sexo: 'F', categoria: 'A' },
-  { id: '3', nombre: 'David', apellidos: 'López', sexo: 'M', categoria: 'A' },
-  { id: '4', nombre: 'Elena', apellidos: 'Sánchez', sexo: 'F', categoria: 'A' },
-  { id: '5', nombre: 'Miguel', apellidos: 'Pérez', sexo: 'M', categoria: 'B' },
-  { id: '6', nombre: 'Laura', apellidos: 'Gómez', sexo: 'F', categoria: 'B' },
-  { id: '7', nombre: 'Javier', apellidos: 'Fernández', sexo: 'M', categoria: 'B' },
-  { id: '8', nombre: 'Carmen', apellidos: 'Ruiz', sexo: 'F', categoria: 'B' },
-  { id: '9', nombre: 'Pablo', apellidos: 'Navarro', sexo: 'M', categoria: 'A' },
-  { id: '10', nombre: 'Lucía', apellidos: 'Torres', sexo: 'F', categoria: 'A' },
-  { id: '11', nombre: 'Alejandro', apellidos: 'Díaz', sexo: 'M', categoria: 'B' },
-  { id: '12', nombre: 'Marta', apellidos: 'Vázquez', sexo: 'F', categoria: 'B' }
+  { id: '1', nombre: 'Molaye', apellidos: 'Mohamed Ahid', sexo: 'M', categoria: 'B' },
+  { id: '2', nombre: 'Darío', apellidos: 'Dámaso', sexo: 'M', categoria: 'A' },
+  { id: '3', nombre: 'Pedro', apellidos: 'Alonso', sexo: 'M', categoria: 'A' },
+  { id: '4', nombre: 'Nicolas', apellidos: 'Charles', sexo: 'M', categoria: 'A' },
+  { id: '5', nombre: 'Samuel', apellidos: 'Tarife', sexo: 'M', categoria: 'A' },
+  { id: '6', nombre: 'Carlos', apellidos: 'Roger', sexo: 'M', categoria: 'B' },
+  { id: '7', nombre: 'Marta', apellidos: 'Siverio', sexo: 'F', categoria: 'A' },
+  { id: '8', nombre: 'Roberto', apellidos: 'Siverio', sexo: 'M', categoria: 'B' },
+  { id: '21', nombre: 'Víctor', apellidos: 'Arrocha', sexo: 'M', categoria: 'B' },
+  { id: '40', nombre: 'Víctor', apellidos: 'Gutiérrez', sexo: 'M', categoria: 'B' }
 ];
 
-export const INITIAL_JORNADAS = [
-  { id: 'J20260925', fecha: '2026-09-25', modalidad: 'Individual', formato: 'UNO', desde: '', puntosSet: 15, ganarPor2: false, definitiva: true, partidos: 6 },
-  { id: 'J20261002', fecha: '2026-10-02', modalidad: 'Dobles', formato: 'TRES', desde: '', puntosSet: 15, ganarPor2: false, definitiva: false, partidos: 2 }
-];
+export const INITIAL_JORNADAS = [];
 
 class BadmintonEngine {
   constructor() {
     this.storageKey = 'liga_badminton_data_v2';
     this.webAppUrlKey = 'liga_badminton_script_url';
     this.pinKey = 'liga_badminton_admin_pin';
+    this.socios = [];
+    this.jornadas = [];
+    this.inscritos = {};
+    this.competiciones = {};
+    this.partidos = [];
     this.loadState();
   }
 
@@ -64,28 +70,9 @@ class BadmintonEngine {
   initDefaultData() {
     this.socios = [...INITIAL_SOCIOS];
     this.jornadas = [...INITIAL_JORNADAS];
-    this.inscritos = {
-      'J20260925_IM-A': [
-        { id: '1', ids: ['1'], nombres: ['Carlos García'] },
-        { id: '3', ids: ['3'], nombres: ['David López'] },
-        { id: '9', ids: ['9'], nombres: ['Pablo Navarro'] }
-      ],
-      'J20261002_DM': [
-        { id: '1+3', ids: ['1', '3'], nombres: ['Carlos García / David López'] },
-        { id: '5+7', ids: ['5', '7'], nombres: ['Miguel Pérez / Javier Fernández'] }
-      ]
-    };
-    this.competiciones = {
-      'J20260925_IM-A': { sistema: 'LIGA', grupos: 1, clasifican: 0 },
-      'J20261002_DM': { sistema: 'ELIM', grupos: 0, clasifican: 0 }
-    };
-    this.partidos = [
-      { id: 'P1', jornada: 'J20260925', fecha: '2026-09-25', categoria: 'IM-A', ronda: 'Fase de grupos', grupo: 'Único', orden: 1, estado: 'Jugado', idsA: ['1'], idsB: ['3'], nomA: ['Carlos García'], nomB: ['David López'], sets: [[15, 12]], ganador: 'A', registrado: Date.now() },
-      { id: 'P2', jornada: 'J20260925', fecha: '2026-09-25', categoria: 'IM-A', ronda: 'Fase de grupos', grupo: 'Único', orden: 2, estado: 'Jugado', idsA: ['3'], idsB: ['9'], nomA: ['David López'], nomB: ['Pablo Navarro'], sets: [[15, 10]], ganador: 'A', registrado: Date.now() },
-      { id: 'P3', jornada: 'J20260925', fecha: '2026-09-25', categoria: 'IM-A', ronda: 'Fase de grupos', grupo: 'Único', orden: 3, estado: 'Jugado', idsA: ['1'], idsB: ['9'], nomA: ['Carlos García'], nomB: ['Pablo Navarro'], sets: [[15, 13]], ganador: 'A', registrado: Date.now() },
-
-      { id: 'P10', jornada: 'J20261002', fecha: '2026-10-02', categoria: 'DM', ronda: 'Final', grupo: '', orden: 1, estado: 'Pendiente', idsA: ['1', '3'], idsB: ['5', '7'], nomA: ['Carlos García', 'David López'], nomB: ['Miguel Pérez', 'Javier Fernández'], sets: [], ganador: '', registrado: '' }
-    ];
+    this.inscritos = {};
+    this.competiciones = {};
+    this.partidos = [];
     this.saveState();
   }
 
@@ -103,9 +90,9 @@ class BadmintonEngine {
 
   getWebAppUrl() {
     if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem(this.webAppUrlKey) || '';
+      return localStorage.getItem(this.webAppUrlKey) || DEFAULT_WEB_APP_URL;
     }
-    return '';
+    return DEFAULT_WEB_APP_URL;
   }
 
   setWebAppUrl(url) {
@@ -127,7 +114,7 @@ class BadmintonEngine {
     }
   }
 
-  // Admin Session Management
+  // --- Sesión de Administración ---
   isAdminSession() {
     if (typeof sessionStorage !== 'undefined') {
       return sessionStorage.getItem('liga_badminton_is_admin') === 'true';
@@ -153,7 +140,6 @@ class BadmintonEngine {
 
     const savedPin = this.getAdminPin();
     if (!savedPin) {
-      // If no PIN was saved in localStorage yet, set the entered PIN as current PIN
       this.setAdminPin(pinStr);
       this.setAdminSession(true);
       return true;
@@ -171,10 +157,13 @@ class BadmintonEngine {
     this.setAdminSession(false);
   }
 
-  // --- API Methods ---
+  // --- Conexión remota con Google Apps Script ---
   async callRemote(action, payload = {}) {
     const url = this.getWebAppUrl();
-    if (!url) return null;
+    if (!url || url.includes('TU_SCRIPT_ID_DESPLEGADO')) {
+      console.warn('URL de Apps Script no configurada. Trabajando en modo local.');
+      return null;
+    }
 
     const pin = this.getAdminPin();
     try {
@@ -187,12 +176,21 @@ class BadmintonEngine {
       if (data.error) throw new Error(data.error);
       return data.result;
     } catch (e) {
-      console.warn('Google Apps Script call failed, falling back to local:', e);
+      console.warn('Llamada a Google Apps Script fallida, recurriendo a datos locales:', e);
       return null;
     }
   }
 
-  // Socios
+  // --- Socios ---
+  async fetchSocios() {
+    const remote = await this.callRemote('getSocios');
+    if (remote && Array.isArray(remote)) {
+      this.socios = remote;
+      this.saveState();
+    }
+    return this.socios;
+  }
+
   getSocios() {
     return this.socios;
   }
@@ -202,7 +200,16 @@ class BadmintonEngine {
     return s ? `${s.nombre} ${s.apellidos}`.trim() : String(id);
   }
 
-  // Jornadas
+  // --- Jornadas ---
+  async fetchJornadas() {
+    const remote = await this.callRemote('getJornadas');
+    if (remote && Array.isArray(remote)) {
+      this.jornadas = remote;
+      this.saveState();
+    }
+    return this.getJornadas();
+  }
+
   getJornadas() {
     const cuenta = {};
     this.partidos.forEach(p => {
@@ -216,7 +223,13 @@ class BadmintonEngine {
     })).sort((a, b) => b.fecha.localeCompare(a.fecha));
   }
 
-  crearJornada(data) {
+  async crearJornada(data) {
+    const remoteRes = await this.callRemote('crearJornada', { jornada: data });
+    if (remoteRes) {
+      await this.fetchJornadas();
+      return remoteRes;
+    }
+
     const id = 'J' + String(data.fecha).replace(/-/g, '');
     if (this.jornadas.some(j => j.id === id)) {
       throw new Error('Ya existe una jornada para esa fecha.');
@@ -237,7 +250,8 @@ class BadmintonEngine {
     return nueva;
   }
 
-  guardarJornadaDefinitiva(idJornada) {
+  async guardarJornadaDefinitiva(idJornada) {
+    await this.callRemote('guardarJornadaDefinitiva', { idJornada });
     const j = this.jornadas.find(x => x.id === idJornada);
     if (!j) throw new Error('No se encuentra la jornada.');
     j.definitiva = true;
@@ -245,7 +259,8 @@ class BadmintonEngine {
     return true;
   }
 
-  borrarJornada(idJornada) {
+  async borrarJornada(idJornada) {
+    await this.callRemote('borrarJornada', { idJornada });
     const j = this.jornadas.find(x => x.id === idJornada);
     if (!j) throw new Error('No se encuentra la jornada.');
     if (j.definitiva) throw new Error('La jornada es definitiva y no se puede borrar.');
@@ -283,8 +298,9 @@ class BadmintonEngine {
     });
   }
 
-  // Inscriptions
-  anadirInscrito(idJornada, categoria, ids) {
+  // --- Inscripciones ---
+  async anadirInscrito(idJornada, categoria, ids) {
+    await this.callRemote('anadirInscrito', { idJornada, categoria, ids });
     const key = `${idJornada}_${categoria}`;
     if (this.competiciones[key]) {
       throw new Error('La competición ya ha sido creada. No se pueden añadir participantes.');
@@ -304,7 +320,8 @@ class BadmintonEngine {
     return true;
   }
 
-  quitarInscrito(idJornada, categoria, idPart) {
+  async quitarInscrito(idJornada, categoria, idPart) {
+    await this.callRemote('quitarInscrito', { idJornada, categoria, idPart });
     const key = `${idJornada}_${categoria}`;
     if (this.competiciones[key]) {
       throw new Error('La competición ya ha sido creada.');
@@ -316,8 +333,9 @@ class BadmintonEngine {
     return true;
   }
 
-  // Matches & Competitions
-  crearCompeticion(idJornada, categoria, cfg) {
+  // --- Competiciones y Partidos ---
+  async crearCompeticion(idJornada, categoria, cfg) {
+    await this.callRemote('crearCompeticion', { idJornada, categoria, cfg });
     const key = `${idJornada}_${categoria}`;
     const insc = this.inscritos[key] || [];
     if (insc.length < 2) throw new Error('Hacen falta al menos 2 participantes.');
@@ -392,7 +410,6 @@ class BadmintonEngine {
     const map = {};
     inscritos.forEach(i => { map[i.id] = i; });
     const size = seeds.length;
-    const roundsCount = Math.log2(size);
     const roundNames = { 1: 'Final', 2: 'Semifinal', 4: 'Cuartos', 8: 'Octavos', 16: 'Dieciseisavos' };
 
     const matches = [];
@@ -514,7 +531,8 @@ class BadmintonEngine {
     return grupos;
   }
 
-  guardarResultado(idPartido, sets) {
+  async guardarResultado(idPartido, sets) {
+    await this.callRemote('guardarResultado', { idPartido, sets });
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
 
@@ -531,7 +549,8 @@ class BadmintonEngine {
     return true;
   }
 
-  borrarResultado(idPartido) {
+  async borrarResultado(idPartido) {
+    await this.callRemote('borrarResultado', { idPartido });
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
     p.sets = [];
@@ -542,7 +561,13 @@ class BadmintonEngine {
     return true;
   }
 
-  // Ranking calculation
+  // --- Rankings ---
+  async fetchRanking() {
+    const remote = await this.callRemote('getRanking');
+    if (remote) return remote;
+    return this.getRanking();
+  }
+
   getRanking() {
     const MEJORES = 3;
     const playerStats = {};
@@ -577,7 +602,6 @@ class BadmintonEngine {
         st.PF += isTeamA ? pfA : pfB;
         st.PC += isTeamA ? pfB : pfA;
 
-        // Puntos estimativos por jornada para ranking
         const ptsMatch = isWinner ? 25 : 10;
         st.porJornada[p.jornada] = (st.porJornada[p.jornada] || 0) + ptsMatch;
       };
