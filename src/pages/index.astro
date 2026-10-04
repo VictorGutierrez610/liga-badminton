@@ -45,14 +45,121 @@ import GoogleSheetsConnect from '../components/GoogleSheetsConnect.astro';
   // --- Core Initializer ---
   document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
+    initAdminMode();
     initVisualizer();
     initManager();
     initRankings();
     initGoogleSheets();
     
-    // Initial Load
+    // Initial Load & Admin state update
+    updateAdminUI();
     loadJornadasVisualizer();
   });
+
+  // --- Admin Mode Logic ---
+  function initAdminMode() {
+    const btnOpen = document.getElementById('btnOpenAdminModal');
+    const btnLogout = document.getElementById('btnLogoutAdmin');
+    const modal = document.getElementById('adminPinModal');
+    const btnClose = document.getElementById('btnCloseAdminModal');
+    const btnCancel = document.getElementById('btnCancelAdminModal');
+    const form = document.getElementById('adminPinForm');
+    const pinInput = document.getElementById('inputPinLogin');
+    const errBox = document.getElementById('adminPinError');
+
+    btnOpen?.addEventListener('click', openAdminModal);
+    btnClose?.addEventListener('click', closeAdminModal);
+    btnCancel?.addEventListener('click', closeAdminModal);
+
+    document.querySelectorAll('.trigger-admin-login-btn').forEach(btn => {
+      btn.addEventListener('click', openAdminModal);
+    });
+
+    btnLogout?.addEventListener('click', () => {
+      engine.logoutAdmin();
+      updateAdminUI();
+      alert('Has salido del Modo Administrador. Ahora estás en Modo Espectador.');
+    });
+
+    form?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const entered = pinInput ? pinInput.value : '';
+      if (errBox) errBox.textContent = '';
+
+      try {
+        engine.verifyAndLoginAdmin(entered);
+        closeAdminModal();
+        updateAdminUI();
+        alert('¡Bienvenido! Has accedido correctamente al Modo Administrador.');
+      } catch (err) {
+        if (errBox) errBox.textContent = err.message || String(err);
+      }
+    });
+  }
+
+  function openAdminModal() {
+    const modal = document.getElementById('adminPinModal');
+    const pinInput = document.getElementById('inputPinLogin');
+    const errBox = document.getElementById('adminPinError');
+
+    if (pinInput) pinInput.value = '';
+    if (errBox) errBox.textContent = '';
+    if (modal) modal.style.display = 'flex';
+    if (pinInput) pinInput.focus();
+  }
+
+  function closeAdminModal() {
+    const modal = document.getElementById('adminPinModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function updateAdminUI() {
+    const isAdmin = engine.isAdminSession();
+
+    const badge = document.getElementById('adminStatusBadge');
+    const btnOpen = document.getElementById('btnOpenAdminModal');
+    const btnLogout = document.getElementById('btnLogoutAdmin');
+    const noticeBanner = document.getElementById('managerAdminNoticeBanner');
+
+    if (badge) {
+      if (isAdmin) {
+        badge.className = 'badge badge-definitiva';
+        badge.textContent = '🔐 Modo Admin Activo';
+      } else {
+        badge.className = 'badge badge-borrador';
+        badge.textContent = '👁️ Modo Espectador';
+      }
+    }
+
+    if (btnOpen) btnOpen.style.display = isAdmin ? 'none' : 'inline-flex';
+    if (btnLogout) btnLogout.style.display = isAdmin ? 'inline-flex' : 'none';
+    if (noticeBanner) noticeBanner.style.display = isAdmin ? 'none' : 'block';
+
+    const btnNewJornada = document.getElementById('btnOpenNewJornadaModal');
+    if (btnNewJornada) {
+      btnNewJornada.disabled = !isAdmin;
+      btnNewJornada.style.opacity = isAdmin ? '1' : '0.6';
+      btnNewJornada.title = isAdmin ? 'Crear nueva jornada' : 'Requiere Modo Administrador';
+    }
+
+    const btnAddPart = document.getElementById('btnAddParticipant');
+    if (btnAddPart) {
+      btnAddPart.disabled = !isAdmin;
+      btnAddPart.style.opacity = isAdmin ? '1' : '0.6';
+    }
+
+    const btnCreateComp = document.getElementById('btnCreateCompetition');
+    if (btnCreateComp) {
+      btnCreateComp.disabled = !isAdmin;
+      btnCreateComp.style.opacity = isAdmin ? '1' : '0.6';
+    }
+
+    // Refresh views to show/hide edit actions
+    renderCategoryVisuals();
+    if (currentTab === 'manager') {
+      loadJornadasManager();
+    }
+  }
 
   // --- Navigation Tabs ---
   function initNavigation() {
@@ -437,6 +544,13 @@ import GoogleSheetsConnect from '../components/GoogleSheetsConnect.astro';
 
   // --- Score Entry Modal ---
   function openScoreModal(matchId) {
+    if (!engine.isAdminSession()) {
+      if (confirm('Debes estar en Modo Administrador para anotar resultados.\n\n¿Deseas introducir tu código PIN de administración ahora?')) {
+        openAdminModal();
+      }
+      return;
+    }
+
     const detail = engine.getCompeticionDetalle(selectedJornadaId, selectedCategory);
     const m = detail.partidos.find(x => x.id === matchId);
     if (!m) return;
@@ -514,6 +628,10 @@ import GoogleSheetsConnect from '../components/GoogleSheetsConnect.astro';
   // --- Manager Logic ---
   function initManager() {
     document.getElementById('btnOpenNewJornadaModal')?.addEventListener('click', () => {
+      if (!engine.isAdminSession()) {
+        openAdminModal();
+        return;
+      }
       document.getElementById('newJornadaFecha').value = new Date().toISOString().split('T')[0];
       document.getElementById('newJornadaModal').style.display = 'flex';
     });
@@ -700,6 +818,7 @@ import GoogleSheetsConnect from '../components/GoogleSheetsConnect.astro';
     const jornadas = engine.getJornadas();
     const tableBody = document.getElementById('managerJornadasTableBody');
     const mgrSel = document.getElementById('mgrSelectJornada');
+    const isAdmin = engine.isAdminSession();
 
     if (tableBody) {
       tableBody.innerHTML = '';
@@ -713,8 +832,11 @@ import GoogleSheetsConnect from '../components/GoogleSheetsConnect.astro';
           <td>${j.partidos}</td>
           <td><span class="badge ${j.definitiva ? 'badge-definitiva' : 'badge-borrador'}">${j.definitiva ? 'Definitiva' : 'En Curso'}</span></td>
           <td>
-            ${!j.definitiva ? `<button class="btn btn-secondary btn-sm finalize-jornada-btn" data-id="${j.id}">Guardar Definitiva</button>
-            <button class="btn btn-danger btn-sm delete-jornada-btn" data-id="${j.id}">Borrar</button>` : 'Definitiva'}
+            ${!j.definitiva ? (
+              isAdmin ? `<button class="btn btn-secondary btn-sm finalize-jornada-btn" data-id="${j.id}">Guardar Definitiva</button>
+              <button class="btn btn-danger btn-sm delete-jornada-btn" data-id="${j.id}">Borrar</button>`
+              : `<span class="text-muted" style="font-size:12px;">En Curso (Lectura)</span>`
+            ) : 'Definitiva'}
           </td>
         `;
         tableBody.appendChild(tr);

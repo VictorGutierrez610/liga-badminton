@@ -17,9 +17,14 @@
         <span id="connectionStatusText">Modo Local (Demostración)</span>
       </div>
       
-      <div class="pin-box">
-        <label for="adminPinInput" class="pin-label">PIN Admin:</label>
-        <input type="password" id="adminPinInput" class="pin-input" placeholder="Opcional..." />
+      <div id="adminStatusBox" class="admin-status-box">
+        <span id="adminStatusBadge" class="badge badge-borrador">👁️ Modo Espectador</span>
+        <button id="btnOpenAdminModal" class="btn btn-primary btn-sm">
+          🔐 Entrar Modo Admin
+        </button>
+        <button id="btnLogoutAdmin" class="btn btn-secondary btn-sm" style="display:none;">
+          🚪 Salir Modo Admin
+        </button>
       </div>
     </div>
   </div>
@@ -39,6 +44,34 @@
     </button>
   </nav>
 </header>
+
+<!-- Modal: Autenticación Modo Administrador -->
+<div id="adminPinModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content" style="max-width:420px;">
+    <div class="modal-header">
+      <h3 class="modal-title">🔐 Acceso a Modo Administrador</h3>
+      <button class="modal-close" id="btnCloseAdminModal">✕</button>
+    </div>
+
+    <form id="adminPinForm">
+      <p class="text-muted" style="font-size:13px; margin-bottom:14px;">
+        Introduce el PIN de administración para editar jornadas, anotar resultados y sincronizar con la hoja de Google Sheets.
+      </p>
+
+      <div class="form-group">
+        <label class="form-label" for="inputPinLogin">Código PIN de Administrador:</label>
+        <input type="password" id="inputPinLogin" class="form-control" placeholder="Introduce tu PIN..." required autofocus />
+      </div>
+
+      <div id="adminPinError" class="text-red" style="font-size:13px; margin-bottom:12px; min-height:18px;"></div>
+
+      <div class="flex-between">
+        <button type="button" class="btn btn-secondary" id="btnCancelAdminModal">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Validar & Entrar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <style>
   .main-header {

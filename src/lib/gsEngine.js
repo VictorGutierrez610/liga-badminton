@@ -127,6 +127,50 @@ class BadmintonEngine {
     }
   }
 
+  // Admin Session Management
+  isAdminSession() {
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem('liga_badminton_is_admin') === 'true';
+    }
+    return false;
+  }
+
+  setAdminSession(active) {
+    if (typeof sessionStorage !== 'undefined') {
+      if (active) {
+        sessionStorage.setItem('liga_badminton_is_admin', 'true');
+      } else {
+        sessionStorage.removeItem('liga_badminton_is_admin');
+      }
+    }
+  }
+
+  verifyAndLoginAdmin(enteredPin) {
+    const pinStr = String(enteredPin || '').trim();
+    if (!pinStr) {
+      throw new Error('Por favor, introduce el PIN de administración.');
+    }
+
+    const savedPin = this.getAdminPin();
+    if (!savedPin) {
+      // If no PIN was saved in localStorage yet, set the entered PIN as current PIN
+      this.setAdminPin(pinStr);
+      this.setAdminSession(true);
+      return true;
+    }
+
+    if (pinStr === savedPin) {
+      this.setAdminSession(true);
+      return true;
+    } else {
+      throw new Error('PIN de administración incorrecto.');
+    }
+  }
+
+  logoutAdmin() {
+    this.setAdminSession(false);
+  }
+
   // --- API Methods ---
   async callRemote(action, payload = {}) {
     const url = this.getWebAppUrl();
