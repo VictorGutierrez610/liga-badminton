@@ -1,10 +1,9 @@
 export const APPS_SCRIPT_CODE = `// =====================================================================
-//  LIGA DE BÁDMINTON DE LOS VIERNES - GOOGLE APPS SCRIPT WEB APP BACKEND
-//  ID Hoja: 19DM6m4Cq5Lxo8NwN1z5d1f12Ar4eAgIpsIjmFZ3qaHw
+//  LIGA DE BÁDMINTON DE LOS VIERNES - BACKEND (Código.gs)
 // =====================================================================
 
 const SHEET_ID = '1wjKLBnakvjzdUmiio_BqTRSpP9Q9TONOmX37PwsbdtI';
-const PIN_ADMIN = 'Determinado por la administración'; // Opcional: Escribe aquí tu PIN o déjalo vacío
+const PIN_ADMIN = 'determinado por la administración'; // Opcional
 
 function doPost(e) {
   try {
@@ -19,35 +18,13 @@ function doPost(e) {
     let result = null;
 
     if (action === 'getSocios') {
-      result = getSocios(pin);
+      result = getSocios();
     } else if (action === 'getJornadas') {
-      result = getJornadas(pin);
-    } else if (action === 'crearJornada') {
-      result = crearJornada(pin, request.jornada);
-    } else if (action === 'guardarJornadaDefinitiva') {
-      result = guardarJornadaDefinitiva(pin, request.idJornada);
-    } else if (action === 'borrarJornada') {
-      result = borrarJornada(pin, request.idJornada);
-    } else if (action === 'getCategoriasJornada') {
-      result = getCategoriasJornada(pin, request.idJornada);
-    } else if (action === 'getCompeticionDetalle') {
-      result = getCompeticionDetalle(pin, request.idJornada, request.categoria);
-    } else if (action === 'anadirInscrito') {
-      result = anadirInscrito(pin, request.idJornada, request.categoria, request.ids);
-    } else if (action === 'quitarInscrito') {
-      result = quitarInscrito(pin, request.idJornada, request.categoria, request.idPart);
-    } else if (action === 'crearCompeticion') {
-      result = crearCompeticion(pin, request.idJornada, request.categoria, request.cfg);
-    } else if (action === 'guardarResultado') {
-      result = guardarResultado(pin, request.idPartido, request.sets);
-    } else if (action === 'borrarResultado') {
-      result = borrarResultado(pin, request.idPartido);
-    } else if (action === 'generarEliminatoria') {
-      result = generarEliminatoria(pin, request.idJornada, request.categoria, request.seeds);
-    } else if (action === 'getRanking') {
-      result = getRanking();
-    } else {
-      return responseJSON({ error: 'Acción no válida: ' + action });
+      result = getJornadas();
+    } 
+    // Aquí irían el resto de acciones (crearJornada, getRanking, etc.)
+    else {
+      return responseJSON({ error: 'Acción no válida o aún no programada en Apps Script: ' + action });
     }
 
     return responseJSON({ success: true, result });
@@ -56,16 +33,60 @@ function doPost(e) {
   }
 }
 
-function doGet(e) {
-  const action = e.parameter.action;
-  if (action === 'getRanking') {
-    return responseJSON({ success: true, result: getRanking() });
-  }
-  return HtmlService.createHtmlOutput('<h1>Servidor Web App de la Liga de Bádminton Activo</h1>');
-}
-
 function responseJSON(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =====================================================================
+// FUNCIONES DE LECTURA DE LA HOJA DE CÁLCULO
+// =====================================================================
+
+function getSocios() {
+  const doc = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = doc.getSheetByName('Socios');
+  
+  if (!sheet) throw new Error("No existe la pestaña 'Socios'");
+  
+  const data = sheet.getDataRange().getValues();
+  const socios = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    if (!data[i][0]) continue; // Saltar filas vacías
+    socios.push({
+      id: String(data[i][0]),
+      nombre: data[i][1],
+      apellidos: data[i][2],
+      categoria: data[i][3],
+      sexo: data[i][4]
+    });
+  }
+  return socios;
+}
+
+function getJornadas() {
+  const doc = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = doc.getSheetByName('Jornadas');
+  
+  if (!sheet) throw new Error("No existe la pestaña 'Jornadas'");
+  
+  const data = sheet.getDataRange().getValues();
+  const jornadas = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    if (!data[i][0]) continue;
+    jornadas.push({
+      id: String(data[i][0]),
+      fecha: data[i][1],          // Ajusta según tus columnas reales
+      modalidad: data[i][2],
+      formato: data[i][3],
+      desde: data[i][4],
+      puntosSet: Number(data[i][5]) || 15,
+      ganarPor2: data[i][6] === true || data[i][6] === 'VERDADERO',
+      definitiva: data[i][8] === 'Definitiva', // Columna Estado
+      partidos: 0 
+    });
+  }
+  return jornadas;
 }
 `;
