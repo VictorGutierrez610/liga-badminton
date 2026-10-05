@@ -12,7 +12,7 @@
     </div>
 
     <div class="header-right">
-      <div class="status-indicator">
+      <div id="connectionStatusIndicator" class="status-indicator" style="display:none;">
         <span class="status-dot"></span>
         <span id="connectionStatusText">Modo Local (Demostración)</span>
       </div>
@@ -217,22 +217,79 @@
 
   @media (max-width: 640px) {
     .main-header {
-      padding: 16px;
+      padding: 14px;
+    }
+
+    .header-content {
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .brand {
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-icon {
+      flex: 0 0 44px;
+      width: 44px;
+      height: 44px;
+      font-size: 28px;
+      border-radius: 12px;
+    }
+
+    .brand-title {
+      font-size: clamp(17px, 5vw, 21px);
+      line-height: 1.15;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      line-height: 1.35;
     }
 
     .header-right {
+      align-items: stretch;
+      flex-direction: column;
       width: 100%;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .nav-tabs {
       gap: 8px;
     }
 
+    .status-indicator {
+      justify-content: center;
+      min-height: 36px;
+    }
+
+    .admin-status-box {
+      justify-content: stretch;
+    }
+
+    .admin-status-box .btn {
+      flex: 1;
+    }
+
+    .admin-status-box .badge {
+      justify-content: center;
+      flex: 1;
+    }
+
+    .nav-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+      overflow: visible;
+    }
+
     .nav-tab {
-      padding: 9px 12px;
-      font-size: 13px;
+      justify-content: center;
+      min-width: 0;
+      min-height: 42px;
+      padding: 8px 6px;
+      font-size: 12px;
+      white-space: normal;
+      line-height: 1.25;
+      text-align: center;
     }
   }
 </style>

@@ -167,6 +167,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const btnOpen = document.getElementById("btnOpenAdminModal");
     const btnLogout = document.getElementById("btnLogoutAdmin");
     const noticeBanner = document.getElementById("managerAdminNoticeBanner");
+    const connectionStatus = document.getElementById("connectionStatusIndicator");
+
+    if (connectionStatus) {
+      connectionStatus.style.display = isAdmin ? "flex" : "none";
+    }
 
     if (badge) {
       if (isAdmin) {
@@ -584,8 +589,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
 
     let html = `
-      <div class="table-container">
-        <table class="custom-table">
+      <div class="table-container match-results-table-container">
+        <table class="custom-table match-results-table">
           <thead>
             <tr>
               <th>Ronda / Grupo</th>
@@ -620,7 +625,33 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       `;
     });
 
-    html += `</tbody></table></div>`;
+    html += `</tbody></table></div><div class="match-result-cards">`;
+    pars.forEach((m) => {
+      const scoreTxt = m.sets?.length
+        ? m.sets.map((set) => `${set[0]}–${set[1]}`).join(" / ")
+        : "Por jugar";
+      const roundTxt = m.grupo ? `${m.ronda} · Grupo ${m.grupo}` : m.ronda;
+      const teamA = m.nomA?.join(" / ") || "Por determinar";
+      const teamB = m.nomB?.join(" / ") || "Por determinar";
+      html += `
+        <article class="match-result-card">
+          <div class="match-result-meta">
+            <span>${escapeHtml(roundTxt)}</span>
+            <span class="badge ${m.estado === "Jugado" ? "badge-jugado" : m.estado === "Bye" ? "badge-bye" : "badge-pendiente"}">${escapeHtml(m.estado)}</span>
+          </div>
+          <div class="match-result-team ${m.ganador === "A" ? "winner" : ""}">
+            <span>${escapeHtml(teamA)}</span>
+            <strong>${m.sets?.length ? m.sets.map((set) => set[0]).join(" ") : "—"}</strong>
+          </div>
+          <div class="match-result-team ${m.ganador === "B" ? "winner" : ""}">
+            <span>${escapeHtml(teamB)}</span>
+            <strong>${m.sets?.length ? m.sets.map((set) => set[1]).join(" ") : "—"}</strong>
+          </div>
+          <div class="match-result-score">Resultado: ${escapeHtml(scoreTxt)}</div>
+        </article>
+      `;
+    });
+    html += `</div>`;
     container.innerHTML = html;
 
   }
@@ -1397,27 +1428,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   // --- Rankings Logic ---
   function initRankings() {
-    document.querySelectorAll("#levelSegmentRank button").forEach((b) => {
-      b.addEventListener("click", () => {
-        document
-          .querySelectorAll("#levelSegmentRank button")
-          .forEach((x) => x.classList.remove("active-level", "btn-primary"));
-        b.classList.add("active-level", "btn-primary");
-        rankLevel = b.getAttribute("data-level");
+    document
+      .getElementById("selectRankCategory")
+      ?.addEventListener("change", (event) => {
+        const [type, level] = event.currentTarget.value.split("-");
+        rankType = type;
+        if (level) rankLevel = level;
         renderRankingsTable();
       });
-    });
-
-    document.querySelectorAll("#typeTabsRank .cat-tab").forEach((b) => {
-      b.addEventListener("click", () => {
-        document
-          .querySelectorAll("#typeTabsRank .cat-tab")
-          .forEach((x) => x.classList.remove("active"));
-        b.classList.add("active");
-        rankType = b.getAttribute("data-type");
-        renderRankingsTable();
-      });
-    });
 
     document
       .getElementById("searchRankPlayer")
@@ -1481,7 +1499,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
 
     let html = `
-      <table class="custom-table">
+      <div class="table-container rank-desktop-table">
+      <table class="custom-table rank-table">
         <thead>
           <tr>
             <th>Pos</th>
@@ -1528,7 +1547,46 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       `;
     });
 
-    html += `</tbody></table>`;
+    html += `</tbody></table></div><div class="rank-mobile-cards">`;
+    players.forEach((player) => {
+      const posClass =
+        player.pos === 1
+          ? "rank-gold"
+          : player.pos === 2
+            ? "rank-silver"
+            : player.pos === 3
+              ? "rank-bronze"
+              : "";
+      const scoredRounds = player.pts
+        .map((points, index) =>
+          points === null
+            ? ""
+            : `<span class="rank-round-chip ${player.mejoresIndices.includes(index) ? "best" : ""}">J${catData.jornadas[index].n}: ${points}</span>`,
+        )
+        .filter(Boolean)
+        .join("");
+      html += `
+        <article class="rank-mobile-card">
+          <div class="rank-mobile-main">
+            <span class="rank-mobile-position ${posClass}">${player.pos}º</span>
+            <div class="rank-mobile-player">
+              <strong>${escapeHtml(player.nombre)}</strong>
+              <span>${player.PG} PG · ${player.PP} PP</span>
+            </div>
+            <div class="rank-mobile-total">
+              <strong>${player.total}</strong>
+              <span>puntos</span>
+            </div>
+          </div>
+          <details class="rank-mobile-details">
+            <summary>Ver jornadas y desempates</summary>
+            <div class="rank-round-list">${scoredRounds || '<span class="text-muted">Sin puntos registrados</span>'}</div>
+            <p>Dif. partidos: ${player.difPartidos > 0 ? "+" : ""}${player.difPartidos} · Dif. puntos: ${player.difPuntos > 0 ? "+" : ""}${player.difPuntos}</p>
+          </details>
+        </article>
+      `;
+    });
+    html += `</div>`;
     container.innerHTML = html;
   }
 
@@ -1689,7 +1747,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             statusBadge.className = "badge badge-definitiva";
             statusBadge.textContent = "Conectado a Google Sheets";
           }
-          if (connText) connText.textContent = "🟢 Google Sheets Conectado";
+          if (connText) connText.textContent = "Google Sheets Conectado";
           loadJornadasManager();
           loadJornadasVisualizer();
           alert("¡Conexión con Google Sheets verificada correctamente!");

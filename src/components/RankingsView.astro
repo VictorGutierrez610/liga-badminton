@@ -4,15 +4,20 @@
 <div id="view_rankings" class="tab-view" style="display:none;">
   <!-- Rankings Controls Bar -->
   <div class="glass-card flex-between flex-wrap gap-12">
-    <div class="flex-gap flex-wrap">
+    <div class="rank-controls">
       <select id="selectSeasonRank" class="form-select" style="min-width:160px;">
         <option value="2026-27">Temporada 2026/27</option>
       </select>
 
-      <div class="flex-gap" id="levelSegmentRank" style="background:rgba(0,0,0,0.3); padding:4px; border-radius:10px; border:1px solid var(--card-border);">
-        <button class="btn btn-secondary btn-sm active-level" data-level="A">Nivel A</button>
-        <button class="btn btn-secondary btn-sm" data-level="B">Nivel B</button>
-      </div>
+      <select id="selectRankCategory" class="form-select" aria-label="Categoría del ranking">
+        <option value="IM-A">Individual Masculino · Nivel A</option>
+        <option value="IM-B">Individual Masculino · Nivel B</option>
+        <option value="IF-A">Individual Femenino · Nivel A</option>
+        <option value="IF-B">Individual Femenino · Nivel B</option>
+        <option value="DM">Dobles Masculino</option>
+        <option value="DF">Dobles Femenino</option>
+        <option value="DX">Dobles Mixtos</option>
+      </select>
 
       <input type="text" id="searchRankPlayer" class="form-control" placeholder="Buscar jugador..." style="max-width:200px;" />
     </div>
@@ -25,15 +30,6 @@
         📄 Descargar PDF
       </button>
     </div>
-  </div>
-
-  <!-- Category Selection Tabs -->
-  <div class="cat-tabs" id="typeTabsRank">
-    <button class="cat-tab active" data-type="IM">IM · Indiv. Masculino</button>
-    <button class="cat-tab" data-type="IF">IF · Indiv. Femenino</button>
-    <button class="cat-tab" data-type="DM">DM · Dobles Masculino</button>
-    <button class="cat-tab" data-type="DF">DF · Dobles Femenino</button>
-    <button class="cat-tab" data-type="DX">DX · Dobles Mixtos</button>
   </div>
 
   <!-- Main Rankings Table Card -->
