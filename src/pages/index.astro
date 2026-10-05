@@ -126,6 +126,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (modal) modal.style.display = "none";
   }
 
+  function refreshCompetitionState() {
+    loadJornadasManager();
+    loadJornadasVisualizer();
+    renderManagerCategoryDetails();
+    renderCategoryVisuals();
+    if (typeof renderRankingsTable === "function") renderRankingsTable();
+  }
+
   function updateAdminUI() {
     const isAdmin = engine.isAdminSession();
 
@@ -273,19 +281,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         renderMatchList();
       });
 
-    // Score Modal handlers
-    document
-      .getElementById("btnCloseScoreModal")
-      ?.addEventListener("click", closeScoreModal);
-    document
-      .getElementById("btnCancelScoreModal")
-      ?.addEventListener("click", closeScoreModal);
-    document
-      .getElementById("scoreEntryForm")
-      ?.addEventListener("submit", saveScoreModal);
-    document
-      .getElementById("btnDeleteMatchScore")
-      ?.addEventListener("click", deleteScoreModal);
   }
 
   function setVisualizerSubtab(subtab) {
@@ -394,7 +389,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   // Bracket Render
   function renderBracketTree(detail) {
     const container = document.getElementById("bracketTreeContainer");
-    const isAdmin = engine.isAdminSession(); // COMPROBAR ADMIN
     if (!container) return;
 
     if (!detail.competicion) {
@@ -466,7 +460,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             </div>
             <div class="bracket-action-bar">
               <span class="badge ${m.estado === "Jugado" ? "badge-jugado" : m.estado === "Bye" ? "badge-bye" : "badge-pendiente"}">${m.estado}</span>
-              ${isAdmin && m.estado !== "Bye" && m.idsA.length && m.idsB.length ? `<button class="btn btn-secondary btn-sm open-score-btn" data-match-id="${m.id}" style="padding:2px 6px; font-size:10px;">Anotar ✏️</button>` : ""}
             </div>
           </div>
         `;
@@ -477,14 +470,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     container.innerHTML = html;
 
-    // Attach click listeners to open score modal
-    container.querySelectorAll(".open-score-btn").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const mId = btn.getAttribute("data-match-id");
-        openScoreModal(mId);
-      });
-    });
   }
 
   // Group Standings Render
@@ -561,7 +546,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   // Match List Render
   function renderMatchList(detailPassed) {
-    const isAdmin = engine.isAdminSession(); // COMPROBAR ADMIN
     const detail =
       detailPassed ||
       engine.getCompeticionDetalle(selectedJornadaId, selectedCategory);
@@ -609,7 +593,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
               <th>Resultado</th>
               <th class="text-left">Equipo / Jugador B</th>
               <th>Estado</th>
-              <th>Acción</th>
             </tr>
           </thead>
           <tbody>`;
@@ -633,9 +616,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             ${escapeHtml(m.nomB.join(" / ") || "Por determinar")}
           </td>
           <td><span class="badge ${m.estado === "Jugado" ? "badge-jugado" : m.estado === "Bye" ? "badge-bye" : "badge-pendiente"}">${m.estado}</span></td>
-          <td>
-            ${isAdmin && m.estado !== "Bye" && m.idsA.length && m.idsB.length ? `<button class="btn btn-secondary btn-sm open-score-btn" data-match-id="${m.id}">Anotar ✏️</button>` : "-"}
-          </td>
         </tr>
       `;
     });
@@ -643,11 +623,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     html += `</tbody></table></div>`;
     container.innerHTML = html;
 
-    container.querySelectorAll(".open-score-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        openScoreModal(btn.getAttribute("data-match-id"));
-      });
-    });
   }
 
   // --- Score Entry Modal ---
@@ -663,11 +638,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       return;
     }
 
-    const detail = engine.getCompeticionDetalle(
-      selectedJornadaId,
-      selectedCategory,
-    );
-    const m = detail.partidos.find((x) => x.id === matchId);
+    const m = engine.partidos.find((match) => match.id === matchId);
     if (!m) return;
 
     selectedScoreMatch = m;
@@ -677,7 +648,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document.getElementById("scoreModalTeamB").textContent =
       m.nomB.join(" / ") || "Equipo B";
     document.getElementById("scoreModalMatchInfo").textContent =
-      `${m.ronda} ${m.grupo ? "Group " + m.grupo : ""}`;
+      `${m.fecha} · ${m.categoria} · ${m.ronda}${m.grupo ? ` · Grupo ${m.grupo}` : ""}`;
     document.getElementById("scoreModalError").textContent = "";
 
     const s1 = m.sets[0] || ["", ""];
@@ -728,7 +699,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     try {
       await engine.guardarResultado(selectedScoreMatch.id, sets);
       closeScoreModal();
-      renderCategoryVisuals();
+      refreshCompetitionState();
     } catch (err) {
       document.getElementById("scoreModalError").textContent =
         err.message || String(err);
@@ -740,7 +711,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     try {
       await engine.borrarResultado(selectedScoreMatch.id);
       closeScoreModal();
-      renderCategoryVisuals();
+      refreshCompetitionState();
     } catch (err) {
       document.getElementById("scoreModalError").textContent =
         err.message || String(err);
@@ -749,6 +720,34 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   // --- Manager Logic ---
   function initManager() {
+    document
+      .getElementById("btnCloseScoreModal")
+      ?.addEventListener("click", closeScoreModal);
+    document
+      .getElementById("btnCancelScoreModal")
+      ?.addEventListener("click", closeScoreModal);
+    document
+      .getElementById("scoreEntryForm")
+      ?.addEventListener("submit", saveScoreModal);
+    document
+      .getElementById("btnDeleteMatchScore")
+      ?.addEventListener("click", deleteScoreModal);
+
+    document
+      .getElementById("managerMatchFilter")
+      ?.addEventListener("change", () => {
+        renderManagerMatchDetails(
+          engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).partidos,
+        );
+      });
+    document
+      .getElementById("searchManagerMatch")
+      ?.addEventListener("input", () => {
+        renderManagerMatchDetails(
+          engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).partidos,
+        );
+      });
+
     document
       .getElementById("btnOpenNewJornadaModal")
       ?.addEventListener("click", () => {
@@ -788,8 +787,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         try {
           await engine.crearJornada({ fecha, modalidad, formato, puntosSet, desde, ganarPor2 });
           document.getElementById("newJornadaModal").style.display = "none";
-          loadJornadasManager();
-          loadJornadasVisualizer();
+          refreshCompetitionState();
         } catch (err) {
           document.getElementById("newJornadaError").textContent = err.message;
         }
@@ -835,12 +833,30 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const grpBox = document.getElementById("groupsConfigBox");
         if (grpBox)
           grpBox.style.display = selectedSystem === "GRUPOS" ? "block" : "none";
+        refreshGroupAllocationPreview();
       });
     });
+    document
+      .getElementById("numGruposInput")
+      ?.addEventListener("input", refreshGroupAllocationPreview);
 
     document
       .getElementById("btnCreateCompetition")
       ?.addEventListener("click", handleCreateCompetition);
+
+    document
+      .getElementById("btnGenerateEliminatoria")
+      ?.addEventListener("click", async () => {
+        const errEl = document.getElementById("compSetupError");
+        if (errEl) errEl.textContent = "";
+
+        try {
+          await engine.generarCuadroEliminatorio(mgrJornadaId, mgrCategory);
+          refreshCompetitionState();
+        } catch (err) {
+          if (errEl) errEl.textContent = err.message || String(err);
+        }
+      });
 
     // --- Buttons: Guardar en Sheets / Borrar Competicion ─────────────
     document.getElementById("btnSaveCompSheets")?.addEventListener("click", async () => {
@@ -869,8 +885,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       try {
         await engine.borrarCompeticion(mgrJornadaId, mgrCategory);
         if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Competición eliminada local y en Sheets."; }
-        renderManagerCategoryDetails();
-        loadJornadasVisualizer();
+        refreshCompetitionState();
       } catch (err) {
         if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
       }
@@ -991,7 +1006,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       document.getElementById("inputSearchPlayerSingle").value = "";
       document.getElementById("inputSearchPlayer1").value = "";
       document.getElementById("inputSearchPlayer2").value = "";
-      renderManagerCategoryDetails();
+      refreshCompetitionState();
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
     }
@@ -1024,8 +1039,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     try {
       await engine.crearCompeticion(mgrJornadaId, mgrCategory, cfg);
-      renderManagerCategoryDetails();
-      loadJornadasVisualizer();
+      refreshCompetitionState();
       const msg = document.getElementById("compSheetsMsg");
       if (msg) {
         const remoteConfigured = Boolean(engine.getWebAppUrl());
@@ -1037,6 +1051,35 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
     }
+  }
+
+  function refreshGroupAllocationPreview() {
+    const preview = document.getElementById("groupAllocationPreview");
+    if (!preview) return;
+
+    const participantCount = engine.getCompeticionDetalle(
+      mgrJornadaId,
+      mgrCategory,
+    ).participantes.length;
+    const groupCount = Math.max(
+      1,
+      Number(document.getElementById("numGruposInput")?.value) || 2,
+    );
+    if (participantCount === 0) {
+      preview.textContent = "Inscriba participantes para ver cómo se repartirán.";
+      return;
+    }
+
+    const sizes = Array.from({ length: groupCount }, () => 0);
+    for (let index = 0; index < participantCount; index++) {
+      sizes[index % groupCount]++;
+    }
+    preview.textContent = `Reparto previsto: ${sizes
+      .map((size, index) => {
+        const matches = (size * (size - 1)) / 2;
+        return `Grupo ${String.fromCharCode(65 + index)}: ${size} participante(s), ${matches} partido(s)`;
+      })
+      .join(" · ")}. Cada pareja juega una vez en su grupo.`;
   }
 
   function loadJornadasManager() {
@@ -1078,7 +1121,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         b.addEventListener("click", async () => {
           try {
             await engine.guardarJornadaDefinitiva(b.getAttribute("data-id"));
-            loadJornadasManager();
+            refreshCompetitionState();
           } catch (error) {
             alert(`No se pudo guardar la jornada: ${error.message || error}`);
           }
@@ -1094,7 +1137,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           ) {
             try {
               await engine.borrarJornada(b.getAttribute("data-id"));
-              loadJornadasManager();
+              refreshCompetitionState();
             } catch (error) {
               alert(`No se pudo borrar la jornada: ${error.message || error}`);
             }
@@ -1158,6 +1201,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     // Count
     document.getElementById("inscritosCount").textContent =
       detail.participantes.length.toString();
+    refreshGroupAllocationPreview();
 
     // Render inscribed list
     const container = document.getElementById("inscritosListContainer");
@@ -1181,7 +1225,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           b.addEventListener("click", async () => {
             try {
               await engine.quitarInscrito(mgrJornadaId, mgrCategory, b.getAttribute("data-id"));
-              renderManagerCategoryDetails();
+              refreshCompetitionState();
             } catch (error) {
               const errorEl = document.getElementById("inscriptionFormError");
               if (errorEl) errorEl.textContent = `No se pudo quitar el inscrito: ${error instanceof Error ? error.message : String(error)}`;
@@ -1236,13 +1280,37 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       return;
     }
 
-    const rows = matches.map((match) => {
+    const statusFilter =
+      document.getElementById("managerMatchFilter")?.value || "all";
+    const searchQuery =
+      document.getElementById("searchManagerMatch")?.value.toLowerCase().trim() || "";
+    const visibleMatches = matches.filter((match) => {
+      const matchesStatus =
+        statusFilter === "pending"
+          ? match.estado === "Pendiente"
+          : statusFilter === "played"
+            ? match.estado === "Jugado"
+            : true;
+      const names = [...(match.nomA || []), ...(match.nomB || [])]
+        .join(" ")
+        .toLowerCase();
+      return matchesStatus && (!searchQuery || names.includes(searchQuery));
+    });
+
+    if (!visibleMatches.length) {
+      container.innerHTML = '<div class="text-muted text-center" style="padding:14px;">No hay partidos que coincidan con estos filtros.</div>';
+      return;
+    }
+
+    const rows = visibleMatches.map((match) => {
       const teamA = (match.nomA || []).join(" / ");
       const teamB = (match.nomB || []).join(" / ");
       const idsA = (match.idsA || []).join("|");
       const idsB = (match.idsB || []).join("|");
       const score = (match.sets || []).map((set) => `${set[0]}-${set[1]}`).join(", ") || "—";
       const winner = match.ganador === "A" ? teamA : match.ganador === "B" ? teamB : "—";
+      const canEnterScore =
+        match.estado !== "Bye" && (match.idsA || []).length > 0 && (match.idsB || []).length > 0;
       return `<tr>
         <td>${escapeHtml(match.id)}</td>
         <td>${escapeHtml(match.fecha || "")}</td>
@@ -1255,13 +1323,20 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         <td>${escapeHtml(teamB)}<small class="text-muted" style="display:block;">${escapeHtml(idsB)}</small></td>
         <td>${escapeHtml(score)}</td>
         <td>${escapeHtml(winner)}</td>
+        <td>${canEnterScore ? `<button class="btn btn-secondary btn-sm open-score-btn" data-match-id="${escapeHtml(match.id)}">${match.estado === "Jugado" ? "Editar ✏️" : "Anotar ✏️"}</button>` : "—"}</td>
       </tr>`;
     }).join("");
 
     container.innerHTML = `<table class="custom-table">
-      <thead><tr><th>ID</th><th>Fecha</th><th>Categoría</th><th>Ronda</th><th>Grupo</th><th>Orden</th><th>Estado</th><th>Equipo A</th><th>Equipo B</th><th>Sets</th><th>Ganador</th></tr></thead>
+      <thead><tr><th>ID</th><th>Fecha</th><th>Categoría</th><th>Ronda</th><th>Grupo</th><th>Orden</th><th>Estado</th><th>Equipo A</th><th>Equipo B</th><th>Sets</th><th>Ganador</th><th>Acción</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+
+    container.querySelectorAll(".open-score-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        openScoreModal(button.getAttribute("data-match-id"));
+      });
+    });
   }
 
   // --- Rankings Logic ---
@@ -1326,6 +1401,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         ? `${catFullName} · Nivel ${rankLevel}`
         : catFullName;
     }
+    const subtitleEl = document.getElementById("rankTableSubtitle");
+    if (subtitleEl) {
+      subtitleEl.textContent =
+        "Ranking individual · Puntos de las 3 mejores jornadas · Desempates con resultados de toda la liga";
+    }
 
     const seasonData =
       data.temporadas.find((t) => t.id === rankSeason) || data.temporadas[0];
@@ -1378,7 +1458,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           <td style="font-weight:800; font-size:15px; color:var(--accent-gold);">${j.total}</td>
           ${j.pts
             .map((p, idx) => {
-              const isTop = j.mejores.includes(p) && p !== null;
+              const isTop = j.mejoresIndices.includes(idx);
               return `<td style="${isTop ? "background:rgba(74,222,128,0.15); color:var(--accent-green); font-weight:700;" : ""}">${p !== null ? p : "-"}</td>`;
             })
             .join("")}
@@ -1405,14 +1485,23 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       data.temporadas.find((t) => t.id === rankSeason) || data.temporadas[0];
     const catData = seasonData ? seasonData.categorias[catKey] : null;
 
-    if (!catData || catData.jugadores.length === 0) {
+    const searchQ =
+      document.getElementById("searchRankPlayer")?.value.toLowerCase().trim() ||
+      "";
+    const players = catData
+      ? catData.jugadores.filter((player) =>
+          player.nombre.toLowerCase().includes(searchQ),
+        )
+      : [];
+
+    if (players.length === 0) {
       alert("No hay datos para exportar.");
       return;
     }
 
     const canvas = document.createElement("canvas");
     canvas.width = 1200;
-    canvas.height = 300 + catData.jugadores.length * 45;
+    canvas.height = 300 + players.length * 45;
     const ctx = canvas.getContext("2d");
 
     // Background
@@ -1451,7 +1540,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     ctx.fillText("PF", 640, startY + 26);
     ctx.fillText("PC", 720, startY + 26);
 
-    catData.jugadores.forEach((j, i) => {
+    players.forEach((j, i) => {
       const y = startY + 40 + i * 40;
       ctx.fillStyle =
         i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.2)";
