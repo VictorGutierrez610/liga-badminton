@@ -268,8 +268,14 @@
 
     <form id="newJornadaForm">
       <div class="form-group">
-        <label class="form-label">Fecha del Viernes:</label>
-        <input type="date" id="newJornadaFecha" class="form-control" required />
+        <label class="form-label" for="newJornadaFecha">Fecha de la jornada:</label>
+        <div class="date-picker-control">
+          <input type="date" id="newJornadaFecha" class="form-control" required />
+          <button type="button" class="btn btn-secondary date-picker-button" id="btnOpenJornadaCalendar" aria-label="Abrir calendario">
+            📅
+          </button>
+        </div>
+        <small class="text-muted date-picker-hint">Selecciona el día de celebración de la jornada.</small>
       </div>
 
       <div class="form-group">
@@ -364,6 +370,28 @@
     gap: 12px;
     flex-wrap: wrap;
     margin-top: 14px;
+  }
+
+  .date-picker-control {
+    display: flex;
+    gap: 8px;
+  }
+
+  .date-picker-control input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .date-picker-button {
+    flex: 0 0 48px;
+    min-height: 44px;
+    padding: 8px;
+    font-size: 18px;
+  }
+
+  .date-picker-hint {
+    display: block;
+    margin-top: 6px;
   }
 
   .inscritos-list {

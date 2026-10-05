@@ -786,10 +786,25 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           openAdminModal();
           return;
         }
-        document.getElementById("newJornadaFecha").value = new Date()
-          .toISOString()
-          .split("T")[0];
+        const today = new Date();
+        const localDate = [
+          today.getFullYear(),
+          String(today.getMonth() + 1).padStart(2, "0"),
+          String(today.getDate()).padStart(2, "0"),
+        ].join("-");
+        (document.getElementById("newJornadaFecha") as HTMLInputElement).value = localDate;
         document.getElementById("newJornadaModal").style.display = "flex";
+      });
+
+    document
+      .getElementById("btnOpenJornadaCalendar")
+      ?.addEventListener("click", () => {
+        const dateInput = document.getElementById("newJornadaFecha") as HTMLInputElement;
+        if (typeof dateInput.showPicker === "function") {
+          dateInput.showPicker();
+        } else {
+          dateInput.focus();
+        }
       });
 
     document
