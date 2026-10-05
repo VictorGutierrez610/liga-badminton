@@ -309,7 +309,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     jornadas.forEach((j) => {
       const opt = document.createElement("option");
       opt.value = j.id;
-      opt.textContent = `${j.fecha} (${j.modalidad})`;
+      opt.textContent = `${formatShortDate(j.fecha)} (${j.modalidad})`;
       sel.appendChild(opt);
     });
 
@@ -340,7 +340,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           ? "Mejor de 3 Sets"
           : `Mixto (3 sets desde ${j.desde})`;
     if (subTitle) {
-      subTitle.innerHTML = `<b>${j.fecha}</b> · Modalidad: <b>${j.modalidad}</b> · Formato: ${fmtText} ${j.definitiva ? '<span class="badge badge-definitiva">DEFINITIVA</span>' : '<span class="badge badge-borrador">EN CURSO</span>'}`;
+      subTitle.innerHTML = `<b>${formatShortDate(j.fecha)}</b> · Modalidad: <b>${j.modalidad}</b> · Formato: ${fmtText} ${j.definitiva ? '<span class="badge badge-definitiva">DEFINITIVA</span>' : '<span class="badge badge-borrador">EN CURSO</span>'}`;
     }
 
     const catsData = engine.getCategoriasJornada(selectedJornadaId);
@@ -648,7 +648,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document.getElementById("scoreModalTeamB").textContent =
       m.nomB.join(" / ") || "Equipo B";
     document.getElementById("scoreModalMatchInfo").textContent =
-      `${m.fecha} · ${m.categoria} · ${m.ronda}${m.grupo ? ` · Grupo ${m.grupo}` : ""}`;
+      `${formatShortDate(m.fecha)} · ${m.categoria} · ${m.ronda}${m.grupo ? ` · Grupo ${m.grupo}` : ""}`;
     document.getElementById("scoreModalError").textContent = "";
 
     const s1 = m.sets[0] || ["", ""];
@@ -804,19 +804,19 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       selectedPlayerSingle = s;
       document.getElementById("inputSearchPlayerSingle").value =
         `${s.nombre} ${s.apellidos}`;
-    });
+    }, (socio) => playerMatchesManagerCategory(socio));
 
     setupAutocomplete("inputSearchPlayer1", "suggestBoxP1", (s) => {
       selectedPlayerP1 = s;
       document.getElementById("inputSearchPlayer1").value =
         `${s.nombre} ${s.apellidos}`;
-    });
+    }, (socio) => playerMatchesManagerCategory(socio));
 
     setupAutocomplete("inputSearchPlayer2", "suggestBoxP2", (s) => {
       selectedPlayerP2 = s;
       document.getElementById("inputSearchPlayer2").value =
         `${s.nombre} ${s.apellidos}`;
-    });
+    }, (socio) => playerMatchesManagerCategory(socio));
 
     document
       .getElementById("btnAddParticipant")
@@ -878,7 +878,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       try {
         const res = await engine.syncAllToSheets();
         if (res) {
-          if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = `✅ ${res.jornadas} jornada(s) y ${res.partidos} partido(s) guardados en Google Sheets.`; }
+          if (msg) {
+            msg.style.color = "var(--accent-green)";
+            msg.textContent = res.verified
+              ? `✅ Guardado y verificado en Google Sheets: ${res.jornadas} jornada(s) y ${res.partidos} partido(s).`
+              : `✅ ${res.jornadas} jornada(s) y ${res.partidos} partido(s) guardados en Google Sheets.`;
+          }
         } else if (msg) {
           msg.style.color = "#fbbf24";
           msg.textContent = "⚠️ Modo local: configura y verifica la conexión para guardar en Sheets.";
@@ -912,7 +917,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const res = await engine.syncAllToSheets();
         if (res && msg) {
           msg.style.color = "var(--accent-green)";
-          msg.textContent = `✅ Sincronizado: ${res.jornadas} jornada(s) · ${res.partidos} partido(s) guardados.`;
+          msg.textContent = res.verified
+            ? `✅ Sincronizado y verificado: ${res.jornadas} jornada(s) · ${res.partidos} partido(s).`
+            : `✅ Sincronizado: ${res.jornadas} jornada(s) · ${res.partidos} partido(s) guardados.`;
         } else if (msg) {
           msg.style.color = "#fbbf24";
           msg.textContent = "⚠️ Sin conexión con Sheets. Los datos se guardan localmente.";
@@ -929,6 +936,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       .getElementById("mgrSelectJornada")
       ?.addEventListener("change", (e) => {
         mgrJornadaId = e.target.value;
+        resetInscriptionPlayerSelection();
         loadManagerCategories();
       });
 
@@ -936,16 +944,21 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       .getElementById("mgrSelectCategoria")
       ?.addEventListener("change", (e) => {
         mgrCategory = e.target.value;
+        resetInscriptionPlayerSelection();
         renderManagerCategoryDetails();
       });
   }
 
-  function setupAutocomplete(inputId, suggestId, onSelect) {
+  function setupAutocomplete(inputId, suggestId, onSelect, matchesCategory) {
     const input = document.getElementById(inputId);
     const box = document.getElementById(suggestId);
     if (!input || !box) return;
 
     input.addEventListener("input", () => {
+      if (inputId === "inputSearchPlayerSingle") selectedPlayerSingle = null;
+      if (inputId === "inputSearchPlayer1") selectedPlayerP1 = null;
+      if (inputId === "inputSearchPlayer2") selectedPlayerP2 = null;
+
       const query = input.value.toLowerCase().trim();
       if (!query) {
         box.style.display = "none";
@@ -956,13 +969,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       const matches = socios
         .filter(
           (s) =>
-            s.nombre.toLowerCase().includes(query) ||
-            s.apellidos.toLowerCase().includes(query),
+            matchesCategory(s) &&
+            `${s.nombre} ${s.apellidos}`.toLowerCase().includes(query),
         )
-        .slice(0, 5);
+        .slice(0, 8);
 
       if (matches.length === 0) {
-        box.style.display = "none";
+        box.innerHTML = '<div class="suggest-empty">No hay jugadores elegibles que coincidan.</div>';
+        box.style.display = "block";
         return;
       }
 
@@ -970,7 +984,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       matches.forEach((s) => {
         const item = document.createElement("div");
         item.className = "suggest-item";
-        item.innerHTML = `<span><b>${escapeHtml(s.nombre)} ${escapeHtml(s.apellidos)}</b></span> <span class="badge badge-bye">Nivel ${s.categoria}</span>`;
+        const level = s.categoria ? `Nivel ${escapeHtml(s.categoria)}` : "Sin nivel";
+        item.innerHTML = `<span><b>${escapeHtml(s.nombre)} ${escapeHtml(s.apellidos)}</b></span> <span class="badge badge-bye">${level}</span>`;
         item.addEventListener("click", () => {
           onSelect(s);
           box.style.display = "none";
@@ -978,6 +993,37 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         box.appendChild(item);
       });
       box.style.display = "block";
+    });
+  }
+
+  function playerMatchesManagerCategory(socio) {
+    const category = String(mgrCategory || "").toUpperCase();
+    const playerSex = String(socio.sexo || "").trim().toUpperCase();
+    const expectedSex = category.startsWith("IM") || category.startsWith("DM")
+      ? "M"
+      : category.startsWith("IF") || category.startsWith("DF")
+        ? "F"
+        : "";
+    const hasExpectedSex = !expectedSex ||
+      playerSex === expectedSex ||
+      (expectedSex === "M" && ["MASCULINO", "H", "HOMBRE"].includes(playerSex)) ||
+      (expectedSex === "F" && ["FEMENINO", "MUJER"].includes(playerSex));
+    const levelMatch = category.match(/-(A|B)$/);
+    return hasExpectedSex && (!levelMatch ||
+      String(socio.categoria || "").trim().toUpperCase() === levelMatch[1]);
+  }
+
+  function resetInscriptionPlayerSelection() {
+    selectedPlayerSingle = null;
+    selectedPlayerP1 = null;
+    selectedPlayerP2 = null;
+    ["inputSearchPlayerSingle", "inputSearchPlayer1", "inputSearchPlayer2"].forEach((id) => {
+      const input = document.getElementById(id);
+      if (input) input.value = "";
+    });
+    ["suggestBoxSingle", "suggestBoxP1", "suggestBoxP2"].forEach((id) => {
+      const box = document.getElementById(id);
+      if (box) box.style.display = "none";
     });
   }
 
@@ -1105,7 +1151,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${escapeHtml(j.id)}</td>
-          <td class="text-left"><b>${escapeHtml(j.fecha)}</b></td>
+          <td class="text-left"><b>${formatShortDate(j.fecha)}</b></td>
           <td>${escapeHtml(j.modalidad)}</td>
           <td>${escapeHtml(j.formato)}</td>
           <td>${escapeHtml(j.desde || "—")}</td>
@@ -1117,8 +1163,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             ${
               !j.definitiva
                 ? isAdmin
-                  ? `<button class="btn btn-secondary btn-sm finalize-jornada-btn" data-id="${j.id}">Guardar Definitiva</button>
-              <button class="btn btn-danger btn-sm delete-jornada-btn" data-id="${j.id}">Borrar</button>`
+                  ? `<div class="jornada-actions"><button class="btn btn-secondary btn-sm finalize-jornada-btn" data-id="${j.id}">Guardar Definitiva</button><button class="btn btn-danger btn-sm delete-jornada-btn" data-id="${j.id}">Borrar</button></div>`
                   : `<span class="text-muted" style="font-size:12px;">En Curso (Lectura)</span>`
                 : "Definitiva"
             }
@@ -1162,7 +1207,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       jornadas.forEach((j) => {
         const opt = document.createElement("option");
         opt.value = j.id;
-        opt.textContent = `${j.fecha} (${j.modalidad})`;
+        opt.textContent = `${formatShortDate(j.fecha)} (${j.modalidad})`;
         mgrSel.appendChild(opt);
       });
 
@@ -1224,8 +1269,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         let html = "";
         detail.participantes.forEach((p) => {
           html += `
-            <div class="glass-card flex-between" style="padding:8px 12px; margin-bottom:8px; background:rgba(255,255,255,0.03);">
-              <span style="font-size:13px; font-weight:600;">${escapeHtml(p.nombres.join(" / "))}<small class="text-muted" style="display:block;">ID: ${escapeHtml(p.id)} · Participantes: ${escapeHtml((p.ids || []).join("|"))}</small></span>
+            <div class="glass-card flex-between inscrito-card">
+              <span style="font-size:14px; font-weight:600; line-height:1.4;">${escapeHtml(p.nombres.join(" / "))}<small class="text-muted" style="display:block; margin-top:4px; font-size:11px;">ID: ${escapeHtml(p.id)} · Participantes: ${escapeHtml((p.ids || []).join("|"))}</small></span>
               ${!detail.competicion ? `<button class="btn btn-danger btn-sm remove-inscrito-btn" data-id="${p.id}" style="padding:2px 6px; font-size:10px;">Quitar ✕</button>` : ""}
             </div>
           `;
@@ -1324,7 +1369,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         match.estado !== "Bye" && (match.idsA || []).length > 0 && (match.idsB || []).length > 0;
       return `<tr>
         <td>${escapeHtml(match.id)}</td>
-        <td>${escapeHtml(match.fecha || "")}</td>
+        <td>${formatShortDate(match.fecha)}</td>
         <td>${escapeHtml(match.categoria || "")}</td>
         <td>${escapeHtml(match.ronda || "")}</td>
         <td>${escapeHtml(match.grupo || "—")}</td>
@@ -1442,7 +1487,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             <th>Pos</th>
             <th class="text-left">Jugador / Participante</th>
             <th style="color:var(--accent-gold); font-size:14px;">Total 🏆</th>
-            ${catData.jornadas.map((j) => `<th>J${j.n}<br/><small style="font-weight:400; color:var(--text-muted);">${j.fecha}</small></th>`).join("")}
+            ${catData.jornadas.map((j) => `<th>J${j.n}<br/><small style="font-weight:400; color:var(--text-muted);">${formatShortDate(j.fecha)}</small></th>`).join("")}
             <th>PG</th>
             <th>PP</th>
             <th>Dif. Partidos</th>
@@ -1665,7 +1710,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         try {
           const res = await engine.syncAllToSheets();
           if (!res) throw new Error("Configura una conexión válida antes de sincronizar.");
-          if (msg) msg.textContent = `Guardado completado: ${res.jornadas} jornada(s), ${res.partidos} partido(s).`;
+          if (msg) msg.textContent = res.verified
+            ? `Guardado y verificado: ${res.jornadas} jornada(s), ${res.partidos} partido(s).`
+            : `Guardado completado: ${res.jornadas} jornada(s), ${res.partidos} partido(s).`;
           loadJornadasManager();
           loadJornadasVisualizer();
         } catch (error) {
@@ -1675,6 +1722,30 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   }
 
   // --- Utility ---
+  function formatShortDate(value) {
+    if (!value) return "—";
+
+    let date;
+    const dateOnly = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (dateOnly) {
+      date = new Date(
+        Number(dateOnly[1]),
+        Number(dateOnly[2]) - 1,
+        Number(dateOnly[3]),
+        12,
+      );
+    } else {
+      date = new Date(value);
+    }
+
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
+
   function escapeHtml(str) {
     return String(str || "")
       .replace(/&/g, "&amp;")

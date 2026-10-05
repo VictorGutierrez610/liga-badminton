@@ -33,11 +33,11 @@
     <button class="nav-tab active" data-tab="matches">
       <span>🎾</span> Partidos
     </button>
+    <button class="nav-tab" data-tab="rankings">
+      <span>🏆</span> Ranking
+    </button>
     <button class="nav-tab" data-tab="manager">
       <span>⚙️</span> Gestor de Competición
-    </button>
-    <button class="nav-tab" data-tab="rankings">
-      <span>🏆</span> Rankings de la Liga
     </button>
     <button class="nav-tab" data-tab="sheets">
       <span>📊</span> Conexión Google Sheets
@@ -130,6 +130,13 @@
     flex-wrap: wrap;
   }
 
+  .admin-status-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
   .status-indicator {
     display: flex;
     align-items: center;
@@ -206,5 +213,26 @@
     background: var(--primary);
     color: #ffffff;
     box-shadow: 0 4px 15px var(--primary-glow);
+  }
+
+  @media (max-width: 640px) {
+    .main-header {
+      padding: 16px;
+    }
+
+    .header-right {
+      width: 100%;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .nav-tabs {
+      gap: 8px;
+    }
+
+    .nav-tab {
+      padding: 9px 12px;
+      font-size: 13px;
+    }
   }
 </style>

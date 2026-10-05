@@ -172,7 +172,20 @@ class BadmintonEngine {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action, pin, ...payload })
       });
-      const data = await response.json();
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        const isHtml = /^\s*(<!doctype html|<html)/i.test(responseText);
+        const error = new Error(
+          isHtml
+            ? `Apps Script devolvió una página HTML en lugar de JSON para "${action}" (HTTP ${response.status}).`
+            : `Apps Script devolvió una respuesta no válida para "${action}" (HTTP ${response.status}).`
+        );
+        error.code = 'NON_JSON_RESPONSE';
+        throw error;
+      }
       if (!response.ok || data.error || data.success === false) {
         throw new Error(data.error || `Error HTTP ${response.status}`);
       }
@@ -423,7 +436,71 @@ class BadmintonEngine {
   }
 
   async syncAllToSheets(data = this.getStateSnapshot()) {
-    return await this.callRemote('syncAll', { data }, { strict: true });
+    if (!Array.isArray(data.jornadas) || !Array.isArray(data.partidos)) {
+      throw new Error('El estado local no contiene listas válidas de jornadas y partidos.');
+    }
+
+    try {
+      return await this.callRemote('syncAll', { data }, { strict: true });
+    } catch (error) {
+      if (error.code !== 'NON_JSON_RESPONSE') throw error;
+
+      let remote;
+      try {
+        remote = await this.callRemote('getAllData', {}, { strict: true });
+      } catch (verificationError) {
+        throw new Error(
+          `Google Sheets pudo recibir la sincronización, pero Apps Script devolvió HTML y no se pudo verificar la hoja: ${verificationError.message || verificationError}`
+        );
+      }
+
+      if (!this.matchesSyncedState(data, remote)) {
+        throw new Error(
+          'Apps Script devolvió HTML y la lectura de verificación no coincide con los datos enviados. Revisa la implementación de Apps Script y vuelve a sincronizar.'
+        );
+      }
+
+      return {
+        jornadas: data.jornadas.length,
+        partidos: data.partidos.length,
+        verified: true
+      };
+    }
+  }
+
+  matchesSyncedState(expected, actual) {
+    if (
+      !actual ||
+      !Array.isArray(actual.jornadas) ||
+      !Array.isArray(actual.partidos) ||
+      !Array.isArray(actual.socios)
+    ) {
+      return false;
+    }
+
+    if (
+      actual.jornadas.length !== expected.jornadas.length ||
+      actual.partidos.length !== expected.partidos.length
+    ) {
+      return false;
+    }
+    const actualJornadaIds = new Set(actual.jornadas.map(jornada => String(jornada.id)));
+    if (!expected.jornadas.every(jornada => actualJornadaIds.has(String(jornada.id)))) {
+      return false;
+    }
+
+    const actualMatches = new Map(actual.partidos.map(match => [String(match.id), match]));
+    return expected.partidos.every(expectedMatch => {
+      const actualMatch = actualMatches.get(String(expectedMatch.id));
+      return actualMatch &&
+        actualMatch.jornada === expectedMatch.jornada &&
+        actualMatch.categoria === expectedMatch.categoria &&
+        actualMatch.estado === expectedMatch.estado &&
+        actualMatch.ganador === expectedMatch.ganador &&
+        JSON.stringify(actualMatch.idsA || []) === JSON.stringify(expectedMatch.idsA || []) &&
+        JSON.stringify(actualMatch.idsB || []) === JSON.stringify(expectedMatch.idsB || []) &&
+        JSON.stringify(actualMatch.sets || []) === JSON.stringify(expectedMatch.sets || []);
+    });
   }
 
   generateRoundRobin(jornada, categoria, grupoName, participantIds, inscritos) {
