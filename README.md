@@ -1,46 +1,28 @@
-# Astro Starter Kit: Basics
+# Liga de Bádminton de los Viernes UNI
+
+Aplicación web para organizar la liga de bádminton del club: permite consultar partidos y rankings, y administrar jornadas, participantes, competiciones y resultados.
+
+## Funcionalidades
+
+- Partidos: consulta de encuentros, fases de grupos y cuadros eliminatorios.
+- Rankings individuales de categorías masculinas, femeninas y dobles, con puntos por jornada y mejores resultados de temporada.
+- Gestor de competición para crear jornadas, inscribir participantes, generar partidos y registrar resultados.
+- Sincronización de los datos con Google Sheets mediante Google Apps Script.
+
+## Desarrollo
+
+Requiere Node.js `>=22.12.0`.
 
 ```sh
-npm create astro@latest -- --template basics
+npm install
+npm run dev
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Compilar y previsualizar
 
-## 🚀 Project Structure
-
-Inside of your Astro project, you'll see the following folders and files:
-
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
+```sh
+npm run build
+npm run preview
 ```
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+La aplicación usa Astro y guarda datos localmente en el navegador. Para sincronizarlos con Google Sheets, configura la URL de despliegue y el PIN de Apps Script en la sección **Conexión Google Sheets**.

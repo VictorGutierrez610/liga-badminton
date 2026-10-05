@@ -12,7 +12,7 @@
 // =====================================================================
 
 const SHEET_ID = '1wjKLBnakvjzdUmiio_BqTRSpP9Q9TONOmX37PwsbdtI';
-const PIN_ADMIN = ''; // Deja vacio para usar el mismo PIN que configuraste en la app
+const PIN_ADMIN = ''; // Estipulada por la administración
 
 function doPost(e) {
   try {
