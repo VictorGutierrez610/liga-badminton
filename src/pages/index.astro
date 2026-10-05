@@ -851,10 +851,21 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         if (errEl) errEl.textContent = "";
 
         try {
-          await engine.generarCuadroEliminatorio(mgrJornadaId, mgrCategory);
+          const result = await engine.generarCuadroEliminatorio(mgrJornadaId, mgrCategory);
           refreshCompetitionState();
+          const msg = document.getElementById("compSheetsMsg");
+          if (msg) {
+            msg.style.color = result.sincronizacion
+              ? "var(--accent-green)"
+              : "#fbbf24";
+            msg.textContent = result.sincronizacion
+              ? `✅ Cuadro generado y ${result.sincronizacion.created} partido(s) añadido(s), ${result.sincronizacion.updated} actualizado(s) en Sheets.`
+              : "⚠️ Cuadro generado localmente. Para guardarlo en Sheets, actualiza y vuelve a desplegar el código de Apps Script.";
+          }
         } catch (err) {
-          if (errEl) errEl.textContent = err.message || String(err);
+          if (errEl) {
+            errEl.textContent = `${err.message || String(err)}. Comprueba que el código actualizado de Apps Script esté desplegado y que la URL configurada apunte a esa implementación.`;
+          }
         }
       });
 

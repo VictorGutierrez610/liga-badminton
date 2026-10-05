@@ -500,7 +500,7 @@ class BadmintonEngine {
     return matches;
   }
 
-  generarCuadroEliminatorio(idJornada, categoria) {
+  async generarCuadroEliminatorio(idJornada, categoria) {
     const key = `${idJornada}_${categoria}`;
     const comp = this.competiciones[key];
     if (!comp || comp.sistema !== 'GRUPOS') {
@@ -582,17 +582,16 @@ class BadmintonEngine {
       });
     }
 
+    const remoteResult = await this.callRemote(
+      'guardarPartidos',
+      { partidos: bracketMatches },
+      { strict: true }
+    );
     this.partidos = this.partidos.filter(p => !(p.jornada === idJornada && p.categoria === categoria && p.ronda !== 'Fase de grupos'));
     this.partidos.push(...bracketMatches);
     this.saveState();
-    void this.callRemote('crearCompeticion', {
-      idJornada,
-      categoria,
-      cfg: comp,
-      partidos: bracketMatches
-    }, { strict: false }).catch(() => {});
 
-    return bracketMatches;
+    return { partidos: bracketMatches, sincronizacion: remoteResult };
   }
 
   getCompeticionDetalle(idJornada, categoria) {
@@ -693,7 +692,12 @@ class BadmintonEngine {
       if (s[0] > s[1]) setsA++; else setsB++;
     });
     const ganador = setsA > setsB ? 'A' : 'B';
-    await this.callRemote('guardarResultado', { idPartido, sets, ganador }, { strict: true });
+    await this.callRemote('guardarResultado', {
+      idPartido,
+      sets,
+      ganador,
+      partido: { ...p, sets, estado: 'Jugado', ganador }
+    }, { strict: true });
 
     p.sets = sets;
     p.estado = 'Jugado';

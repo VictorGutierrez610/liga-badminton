@@ -35,8 +35,9 @@ function doPost(e) {
     else if (action === 'anadirInscrito')          result = anadirInscrito(request.idJornada, request.categoria, request.ids, request.nombres);
     else if (action === 'quitarInscrito')          result = quitarInscrito(request.idJornada, request.categoria, request.idPart);
     else if (action === 'crearCompeticion')        result = crearCompeticion(request.idJornada, request.categoria, request.cfg, request.partidos);
+    else if (action === 'guardarPartidos')         result = guardarPartidos(request.partidos);
     else if (action === 'borrarCompeticion')       result = borrarCompeticion(request.idJornada, request.categoria);
-    else if (action === 'guardarResultado')        result = guardarResultado(request.idPartido, request.sets, request.ganador);
+    else if (action === 'guardarResultado')        result = guardarResultado(request.idPartido, request.sets, request.ganador, request.partido);
     else if (action === 'borrarResultado')         result = borrarResultado(request.idPartido);
     else if (action === 'syncAll')                 result = syncAll(request.data);
     else return responseJSON({ error: 'Accion no valida: ' + action });
@@ -192,6 +193,16 @@ function _hP() {
           'Estado','IdsA','NomA','IdsB','NomB','Sets','Ganador'];
 }
 
+function _partidoRow(p) {
+  return [
+    p.id, p.jornada, p.fecha, p.categoria, p.ronda, p.grupo||'', p.orden||0,
+    p.estado||'Pendiente',
+    (p.idsA||[]).join('|'), (p.nomA||[]).join(' / '),
+    (p.idsB||[]).join('|'), (p.nomB||[]).join(' / '),
+    JSON.stringify(p.sets||[]), p.ganador||''
+  ];
+}
+
 function crearCompeticion(idJornada, categoria, cfg, partidos) {
   const sC = getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']);
   if (sheetRows(sC).some(r=>String(r[0])===String(idJornada)&&r[1]===categoria))
@@ -200,15 +211,38 @@ function crearCompeticion(idJornada, categoria, cfg, partidos) {
 
   if (partidos && partidos.length > 0) {
     const sP = getOrCreateSheet('Partidos', _hP());
-    partidos.forEach(p => sP.appendRow([
-      p.id, p.jornada, p.fecha, p.categoria, p.ronda, p.grupo||'', p.orden||0,
-      p.estado||'Pendiente',
-      (p.idsA||[]).join('|'), (p.nomA||[]).join(' / '),
-      (p.idsB||[]).join('|'), (p.nomB||[]).join(' / '),
-      JSON.stringify(p.sets||[]), p.ganador||''
-    ]));
+    partidos.forEach(p => sP.appendRow(_partidoRow(p)));
   }
   return true;
+}
+
+function guardarPartidos(partidos) {
+  if (!Array.isArray(partidos) || partidos.length === 0)
+    throw new Error('No se recibieron partidos para guardar.');
+
+  const sheet = getOrCreateSheet('Partidos', _hP());
+  const data = sheet.getDataRange().getValues();
+  const rowsById = new Map();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0]) rowsById.set(String(data[i][0]), i + 1);
+  }
+
+  let created = 0;
+  let updated = 0;
+  partidos.forEach(p => {
+    if (!p || !p.id) throw new Error('Se recibió un partido sin ID.');
+    const row = _partidoRow(p);
+    const existingRow = rowsById.get(String(p.id));
+    if (existingRow) {
+      sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
+      updated++;
+    } else {
+      sheet.appendRow(row);
+      rowsById.set(String(p.id), sheet.getLastRow());
+      created++;
+    }
+  });
+  return { created, updated };
 }
 
 function borrarCompeticion(idJornada, categoria) {
@@ -219,7 +253,7 @@ function borrarCompeticion(idJornada, categoria) {
   return true;
 }
 
-function guardarResultado(idPartido, sets, ganador) {
+function guardarResultado(idPartido, sets, ganador, partido) {
   const sheet = getOrCreateSheet('Partidos', _hP());
   const data = sheet.getDataRange().getValues();
   for (let i=1; i<data.length; i++) {
@@ -230,7 +264,15 @@ function guardarResultado(idPartido, sets, ganador) {
       return true;
     }
   }
-  throw new Error('Partido no encontrado: ' + idPartido);
+  if (!partido || String(partido.id) !== String(idPartido))
+    throw new Error('Partido no encontrado y no se recibió su información para recuperarlo: ' + idPartido);
+  sheet.appendRow(_partidoRow({
+    ...partido,
+    estado: 'Jugado',
+    sets,
+    ganador: ganador || ''
+  }));
+  return true;
 }
 
 function borrarResultado(idPartido) {
@@ -275,13 +317,7 @@ function syncAll(data) {
 
   const sP = getOrCreateSheet('Partidos', _hP());
   _clearRows(sP);
-  (data.partidos||[]).forEach(p => sP.appendRow([
-    p.id, p.jornada, p.fecha, p.categoria, p.ronda, p.grupo||'', p.orden||0,
-    p.estado||'Pendiente',
-    (p.idsA||[]).join('|'), (p.nomA||[]).join(' / '),
-    (p.idsB||[]).join('|'), (p.nomB||[]).join(' / '),
-    JSON.stringify(p.sets||[]), p.ganador||''
-  ]));
+  (data.partidos||[]).forEach(p => sP.appendRow(_partidoRow(p)));
 
   return { jornadas: (data.jornadas||[]).length, partidos: (data.partidos||[]).length };
 }
@@ -301,4 +337,3 @@ function _delWhere(name, headers, predFn) {
   }
 }
 `;
-
