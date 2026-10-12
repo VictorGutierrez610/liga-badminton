@@ -4,7 +4,7 @@
 // =====================================================================
 
 // ID real de tu hoja de cálculo "Liguilla viernes"
-const DEFAULT_SHEET_ID = '1wjKLBnakvjzdUmiio_BqTRSpP9Q9TONOmX37PwsbdtI';
+const DEFAULT_SHEET_ID = '1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y';
 
 // Coloca aquí la URL que te genera Google Apps Script al hacer la "Nueva Implementación"
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxzsCk9JfCn_oFw1N_aprDasb3-KnzznI5U7NKeV7Gi7oWnNiC9Jorx1nHXxbWZxPOl/exec';

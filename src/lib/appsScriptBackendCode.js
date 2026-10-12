@@ -11,7 +11,7 @@
 //                     Estado | IdsA | NomA | IdsB | NomB | Sets | Ganador
 // =====================================================================
 
-const SHEET_ID = '1wjKLBnakvjzdUmiio_BqTRSpP9Q9TONOmX37PwsbdtI';
+const SHEET_ID = '1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y';
 const PIN_ADMIN = ''; // Estipulada por la administración
 
 function doPost(e) {
