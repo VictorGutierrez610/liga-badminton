@@ -58,7 +58,7 @@ class BadmintonEngine {
         this.jornadas = parsed.jornadas || INITIAL_JORNADAS;
         this.inscritos = parsed.inscritos || {};
         this.competiciones = parsed.competiciones || {};
-        this.partidos = parsed.partidos || [];
+        this.partidos = Array.isArray(parsed.partidos) ? parsed.partidos : [];
       } catch (e) {
         this.initDefaultData();
       }
@@ -378,7 +378,15 @@ class BadmintonEngine {
       newMatches.push(...matches);
       competitionConfig = { sistema: 'LIGA', grupos: 1, clasifican: 0 };
     } else if (cfg.sistema === 'GRUPOS') {
-      const grupos = cfg.grupos || [];
+      let grupos = cfg.grupos || [];
+      if (cfg.metodoAsignacion === 'ALEATORIO') {
+        if (grupos.length < 2 || grupos.length > insc.length) {
+          throw new Error('El número de grupos debe ser al menos 2 y no puede superar el número de participantes.');
+        }
+        const shuffledIds = this.shuffle(insc.map(x => x.id));
+        grupos = Array.from({ length: grupos.length }, () => []);
+        shuffledIds.forEach((id, index) => grupos[index % grupos.length].push(id));
+      }
       if (grupos.length < 2 || grupos.length > insc.length || grupos.some(g => g.length < 2)) {
         throw new Error('Cada grupo debe tener al menos 2 participantes y no puede haber más grupos que participantes.');
       }
@@ -395,12 +403,26 @@ class BadmintonEngine {
         const matches = this.generateRoundRobin(j, categoria, groupName, g, insc);
         newMatches.push(...matches);
       });
-      competitionConfig = { sistema: 'GRUPOS', grupos: grupos.length, clasifican: Number(cfg.clasifican) || 2 };
+      competitionConfig = {
+        sistema: 'GRUPOS',
+        grupos: grupos.length,
+        clasifican: Number(cfg.clasifican) || 2,
+        metodoAsignacion: cfg.metodoAsignacion === 'MANUAL' ? 'MANUAL' : 'ALEATORIO'
+      };
     } else if (cfg.sistema === 'ELIM') {
-      const seeds = cfg.seeds || [];
+      const seeds = cfg.metodoCruces === 'MANUAL'
+        ? (cfg.cruces || []).flat()
+        : this.shuffle(insc.map(x => x.id));
       const matches = this.generateKnockout(j, categoria, seeds, insc);
       newMatches.push(...matches);
-      competitionConfig = { sistema: 'ELIM', grupos: 0, clasifican: 0 };
+      competitionConfig = {
+        sistema: 'ELIM',
+        grupos: 0,
+        clasifican: 0,
+        metodoCruces: cfg.metodoCruces === 'MANUAL' ? 'MANUAL' : 'ALEATORIO'
+      };
+    } else {
+      throw new Error('El sistema de competición seleccionado no es válido.');
     }
 
     this.competiciones[key] = competitionConfig;
@@ -541,17 +563,36 @@ class BadmintonEngine {
     return matches;
   }
 
-  generateKnockout(jornada, categoria, seeds, inscritos) {
+  shuffle(items) {
+    const shuffled = [...items];
+    for (let index = shuffled.length - 1; index > 0; index--) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+    }
+    return shuffled;
+  }
+
+  generateKnockout(jornada, categoria, seeds, inscritos, expectedParticipantIds = inscritos.map(x => x.id)) {
     const map = {};
     inscritos.forEach(i => { map[i.id] = i; });
-    const size = seeds.length;
+    const uniqueSeeds = seeds.filter(Boolean);
+    if (
+      uniqueSeeds.length !== expectedParticipantIds.length ||
+      new Set(uniqueSeeds).size !== expectedParticipantIds.length ||
+      expectedParticipantIds.some(id => !uniqueSeeds.includes(id))
+    ) {
+      throw new Error('Los cruces deben incluir a cada participante una sola vez.');
+    }
+    const size = Math.pow(2, Math.ceil(Math.log2(Math.max(seeds.length, 2))));
+    const paddedSeeds = [...seeds];
+    while (paddedSeeds.length < size) paddedSeeds.push('');
     const roundNames = { 1: 'Final', 2: 'Semifinal', 4: 'Cuartos', 8: 'Octavos', 16: 'Dieciseisavos' };
 
     const matches = [];
     let matchIdIndex = 1;
 
     for (let i = 0; i < size / 2; i++) {
-      const sA = seeds[i * 2], sB = seeds[i * 2 + 1];
+      const sA = paddedSeeds[i * 2], sB = paddedSeeds[i * 2 + 1];
       const pA = sA ? map[sA] : null;
       const pB = sB ? map[sB] : null;
 
@@ -580,7 +621,7 @@ class BadmintonEngine {
     return matches;
   }
 
-  async generarCuadroEliminatorio(idJornada, categoria) {
+  async generarCuadroEliminatorio(idJornada, categoria, cfg = {}) {
     const key = `${idJornada}_${categoria}`;
     const comp = this.competiciones[key];
     if (!comp || comp.sistema !== 'GRUPOS') {
@@ -592,75 +633,44 @@ class BadmintonEngine {
       throw new Error('Primero deben terminarse todos los partidos de la fase de grupos para generar el cuadro.');
     }
 
-    const winners = Object.keys(detalle.clasificacion || {})
+    const qualified = Object.keys(detalle.clasificacion || {})
       .sort()
-      .map(grupo => detalle.clasificacion[grupo][0])
-      .filter(Boolean)
-      .map(entry => entry.id);
+      .flatMap(grupo => (detalle.clasificacion[grupo] || [])
+        .slice(0, comp.clasifican || 1)
+        .map((entry, index) => ({ id: entry.id, grupo, posicion: index + 1 })));
 
-    if (winners.length < 2) {
-      throw new Error('Necesitas al menos 2 ganadores de grupo para generar el cuadro eliminatorio.');
+    if (qualified.length < 2) {
+      throw new Error('Necesitas al menos 2 participantes clasificados para generar el cuadro eliminatorio.');
     }
-
-    const nextPow2 = Math.pow(2, Math.ceil(Math.log2(winners.length || 2)));
-    const seeds = [...winners];
-    while (seeds.length < nextPow2) seeds.push('');
 
     const j = this.jornadas.find(x => x.id === idJornada);
     const inscritos = this.inscritos[key] || [];
-    const map = {};
-    inscritos.forEach(i => { map[i.id] = i; });
-
-    const bracketMatches = [];
-    let index = 1;
-    const semifinalSeeds = [];
-    for (let i = 0; i < seeds.length; i += 2) {
-      semifinalSeeds.push([seeds[i], seeds[i + 1]]);
+    const metodoCruces = cfg.metodoCruces === 'MANUAL' ? 'MANUAL' : 'ALEATORIO';
+    let seeds;
+    if (metodoCruces === 'MANUAL') {
+      const available = new Set(qualified.map(entry => `${entry.grupo}:${entry.posicion}`));
+      const selected = (cfg.cruces || []).flat().filter(Boolean);
+      if (
+        selected.length !== qualified.length ||
+        new Set(selected).size !== selected.length ||
+        selected.some(slot => !available.has(slot))
+      ) {
+        throw new Error('Asigna una sola vez a todos los clasificados y deja vacíos únicamente los puestos de bye.');
+      }
+      const idBySlot = new Map(qualified.map(entry => [`${entry.grupo}:${entry.posicion}`, entry.id]));
+      seeds = (cfg.cruces || []).flat().map(slot => slot ? idBySlot.get(slot) : '');
+    } else {
+      seeds = this.shuffle(qualified.map(entry => entry.id));
     }
-
-    semifinalSeeds.forEach(([a, b], i) => {
-      const pA = a ? map[a] : null;
-      const pB = b ? map[b] : null;
-      const isBye = !a || !b;
-      const winner = !a ? 'B' : (!b ? 'A' : '');
-      bracketMatches.push({
-        id: 'PG_' + Date.now() + '_' + index++,
-        jornada: j.id,
-        fecha: j.fecha,
-        categoria,
-        ronda: semifinalSeeds.length > 1 ? 'Semifinal' : 'Final',
-        grupo: '',
-        orden: i + 1,
-        estado: isBye ? 'Bye' : 'Pendiente',
-        idsA: pA ? pA.ids : [],
-        idsB: pB ? pB.ids : [],
-        nomA: pA ? pA.nombres : [],
-        nomB: pB ? pB.nombres : [],
-        sets: [],
-        ganador: winner,
-        registrado: ''
-      });
-    });
-
-    if (semifinalSeeds.length > 1) {
-      bracketMatches.push({
-        id: 'PG_' + Date.now() + '_' + index++,
-        jornada: j.id,
-        fecha: j.fecha,
-        categoria,
-        ronda: 'Final',
-        grupo: '',
-        orden: semifinalSeeds.length + 1,
-        estado: 'Pendiente',
-        idsA: [],
-        idsB: [],
-        nomA: [],
-        nomB: [],
-        sets: [],
-        ganador: '',
-        registrado: ''
-      });
-    }
+    const bracketMatches = this.generateKnockout(
+      j,
+      categoria,
+      seeds,
+      inscritos,
+      qualified.map(entry => entry.id)
+    )
+      .map(match => ({ ...match, id: match.id.replace(/^PK_/, 'PG_') }));
+    comp.metodoCruces = metodoCruces;
 
     const updatedMatches = this.partidos.filter(p => !(p.jornada === idJornada && p.categoria === categoria && p.ronda !== 'Fase de grupos'));
     updatedMatches.push(...bracketMatches);
@@ -834,14 +844,18 @@ class BadmintonEngine {
         categoria: s.categoria,
         sexo: s.sexo,
         porCategoriaJornada: {},
+        participaciones: new Set(),
         PG: 0, PP: 0, PF: 0, PC: 0
       };
     });
 
     this.partidos.forEach(p => {
-      if (p.estado !== 'Jugado') return;
+      if (p.estado !== 'Jugado' || !Array.isArray(p.sets)) return;
       const idsA = p.idsA || [];
       const idsB = p.idsB || [];
+      [...idsA, ...idsB].forEach(id => {
+        if (playerStats[id]) playerStats[id].participaciones.add(p.categoria);
+      });
 
       let pfA = 0, pfB = 0;
       p.sets.forEach(s => {
@@ -878,10 +892,11 @@ class BadmintonEngine {
 
       if (comp.sistema === 'LIGA') {
         const groupMatches = matches.filter(p => p.ronda === 'Fase de grupos');
-        if (groupMatches.length && groupMatches.every(p => p.estado === 'Jugado')) {
-          const standings = this.calcClasificacion(inscritos, groupMatches, comp);
+        const playedMatches = groupMatches.filter(p => p.estado === 'Jugado');
+        if (playedMatches.length) {
+          const standings = this.calcClasificacion(inscritos, playedMatches, comp);
           const orderedPlayers = Object.values(standings).flat();
-          orderedPlayers.forEach((player, index) => {
+          orderedPlayers.filter(player => player.PJ > 0).forEach((player, index) => {
             const participant = inscritos.find(entry => entry.id === player.id);
             (participant ? participant.ids : [player.id]).forEach(id => {
               addPoints(id, Math.max(10, 100 - 15 * index));
@@ -975,6 +990,7 @@ class BadmintonEngine {
     return {
       generado: new Date().toLocaleDateString('es-ES') + ' ' + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
       mejoresJornadas: MEJORES,
+      provisional: this.partidos.some(p => p.estado === 'Pendiente'),
       hayDerrotas: true,
       temporadas
     };
@@ -987,10 +1003,11 @@ class BadmintonEngine {
     const jugadores = Object.values(playerStats)
       .filter(st => {
         const playerSex = String(st.sexo || '').toUpperCase();
-        const matchesSex = !sexo || playerSex === sexo ||
-          (sexo === 'M' && playerSex === 'MASCULINO') ||
-          (sexo === 'F' && playerSex === 'FEMENINO');
-        return matchesSex && (!nivel || st.categoria === nivel);
+        const matchesSex = !sexo || (sexo === 'M'
+          ? ['M', 'MASCULINO', 'H', 'HOMBRE'].includes(playerSex)
+          : ['F', 'FEMENINO', 'MUJER'].includes(playerSex));
+        return matchesSex && (!nivel || String(st.categoria || '').toUpperCase() === nivel) &&
+          st.participaciones.has(catName);
       })
       .map(st => {
         const categoryPoints = st.porCategoriaJornada[catName] || {};

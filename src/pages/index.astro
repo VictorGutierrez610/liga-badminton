@@ -44,6 +44,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   let mgrJornadaId = "";
   let mgrCategory = "";
   let selectedSystem = "LIGA";
+  let groupAssignmentMode = "ALEATORIO";
+  let knockoutAssignmentMode = "ALEATORIO";
+  let groupKnockoutAssignmentMode = "ALEATORIO";
   let selectedPlayerSingle = null;
   let selectedPlayerP1 = null;
   let selectedPlayerP2 = null;
@@ -879,12 +882,38 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const grpBox = document.getElementById("groupsConfigBox");
         if (grpBox)
           grpBox.style.display = selectedSystem === "GRUPOS" ? "block" : "none";
+        const knockoutBox = document.getElementById("knockoutConfigBox");
+        if (knockoutBox)
+          knockoutBox.style.display = selectedSystem === "ELIM" ? "block" : "none";
         refreshGroupAllocationPreview();
+        renderManualGroupAssignments();
+        renderDirectKnockoutPairings();
       });
     });
     document
       .getElementById("numGruposInput")
-      ?.addEventListener("input", refreshGroupAllocationPreview);
+      ?.addEventListener("input", () => {
+        refreshGroupAllocationPreview();
+        renderManualGroupAssignments();
+      });
+    document
+      .getElementById("groupAssignmentMode")
+      ?.addEventListener("change", (event) => {
+        groupAssignmentMode = event.currentTarget.value;
+        renderManualGroupAssignments();
+      });
+    document
+      .getElementById("knockoutAssignmentMode")
+      ?.addEventListener("change", (event) => {
+        knockoutAssignmentMode = event.currentTarget.value;
+        renderDirectKnockoutPairings();
+      });
+    document
+      .getElementById("groupKnockoutAssignmentMode")
+      ?.addEventListener("change", (event) => {
+        groupKnockoutAssignmentMode = event.currentTarget.value;
+        renderGroupKnockoutPairings();
+      });
 
     document
       .getElementById("btnCreateCompetition")
@@ -897,7 +926,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         if (errEl) errEl.textContent = "";
 
         try {
-          const result = await engine.generarCuadroEliminatorio(mgrJornadaId, mgrCategory);
+        const cfg = { metodoCruces: groupKnockoutAssignmentMode };
+        if (groupKnockoutAssignmentMode === "MANUAL") {
+          cfg.cruces = getManualPairings(
+            "groupManualKnockoutPairings",
+            getQualifiedGroupEntries().length,
+          );
+        }
+        const result = await engine.generarCuadroEliminatorio(mgrJornadaId, mgrCategory, cfg);
           refreshCompetitionState();
           const msg = document.getElementById("compSheetsMsg");
           if (msg) {
@@ -1124,20 +1160,24 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       const numG = Number(document.getElementById("numGruposInput").value) || 2;
       const clas =
         Number(document.getElementById("clasificanGruposInput").value) || 2;
-
-      const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
-      const insc = detail.participantes;
+      cfg.metodoAsignacion = groupAssignmentMode;
       const groups = Array.from({ length: numG }, () => []);
-
-      insc.forEach((item, idx) => {
-        groups[idx % numG].push(item.id);
-      });
-
+      if (groupAssignmentMode === "MANUAL") {
+        document.querySelectorAll(".manual-group-select").forEach((select) => {
+          const groupIndex = Number(select.value);
+          if (groups[groupIndex]) groups[groupIndex].push(select.getAttribute("data-participant-id"));
+        });
+      }
       cfg.grupos = groups;
       cfg.clasifican = clas;
     } else if (selectedSystem === "ELIM") {
-      const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
-      cfg.seeds = detail.participantes.map((x) => x.id);
+      cfg.metodoCruces = knockoutAssignmentMode;
+      if (knockoutAssignmentMode === "MANUAL") {
+        cfg.cruces = getManualPairings(
+          "manualKnockoutPairings",
+          engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).participantes.length,
+        );
+      }
     }
 
     try {
@@ -1154,6 +1194,130 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
     }
+  }
+
+  function renderManualGroupAssignments() {
+    const container = document.getElementById("manualGroupAssignments");
+    if (!container) return;
+    container.style.display = groupAssignmentMode === "MANUAL" ? "block" : "none";
+    if (groupAssignmentMode !== "MANUAL") return;
+
+    const participants = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).participantes;
+    const countInput = document.getElementById("numGruposInput");
+    const count = Math.max(2, Number(countInput?.value) || 2);
+    const previous = new Map(
+      [...container.querySelectorAll(".manual-group-select")].map((select) => [
+        select.getAttribute("data-participant-id"),
+        select.value,
+      ]),
+    );
+    const groupOptions = Array.from({ length: count }, (_, index) => {
+      const name = String.fromCharCode(65 + index);
+      return `<option value="${index}">Grupo ${name}</option>`;
+    }).join("");
+
+    container.innerHTML = participants.length
+      ? `<div class="text-muted" style="font-size:12px; margin-bottom:8px;">Elige el grupo de cada participante:</div>${participants.map((participant) =>
+          `<label class="flex-between gap-12" style="margin-bottom:6px; font-size:13px;"><span>${escapeHtml(participant.nombres.join(" / "))}</span><select class="form-select manual-group-select" data-participant-id="${escapeHtml(participant.id)}" style="max-width:150px;">${groupOptions}</select></label>`,
+        ).join("")}`
+      : '<div class="text-muted" style="font-size:12px;">Inscriba participantes para repartirlos manualmente.</div>';
+
+    container.querySelectorAll(".manual-group-select").forEach((select, index) => {
+      const savedGroup = previous.get(select.getAttribute("data-participant-id"));
+      select.value = savedGroup !== undefined && Number(savedGroup) < count
+        ? savedGroup
+        : String(index % count);
+    });
+  }
+
+  function renderManualPairingControls(containerId, options, entrantCount) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const slotCount = Math.pow(2, Math.ceil(Math.log2(Math.max(entrantCount, 2))));
+    const roundName = {
+      2: "Final",
+      4: "Semifinal",
+      8: "Cuartos de final",
+      16: "Octavos de final",
+      32: "Dieciseisavos de final",
+    }[slotCount] || "Ronda inicial";
+    const previous = [...container.querySelectorAll(".manual-pairing-slot")].map((select) => select.value);
+    const optionHtml = options.map((option) =>
+      `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`,
+    ).join("");
+    container.innerHTML = `<p class="text-muted" style="font-size:12px; margin-bottom:8px;">Cruces de ${roundName}. Asigna cada participante/clasificado una sola vez. Los puestos sin jugador serán byes.</p>${Array.from({ length: slotCount / 2 }, (_, matchIndex) => `
+      <div class="glass-card" style="padding:8px; margin:0 0 8px;">
+        <strong style="font-size:12px;">Cruce ${matchIndex + 1}</strong>
+        <div class="grid-cols-2" style="gap:8px; margin-top:6px;">
+          <select class="form-select manual-pairing-slot" aria-label="Participante A del cruce ${matchIndex + 1}">
+            <option value="">Bye</option>${optionHtml}
+          </select>
+          <select class="form-select manual-pairing-slot" aria-label="Participante B del cruce ${matchIndex + 1}">
+            <option value="">Bye</option>${optionHtml}
+          </select>
+        </div>
+      </div>`).join("")}`;
+    container.querySelectorAll(".manual-pairing-slot").forEach((select, index) => {
+      if (previous[index] && options.some((option) => option.value === previous[index])) {
+        select.value = previous[index];
+      }
+    });
+  }
+
+  function renderDirectKnockoutPairings() {
+    const container = document.getElementById("manualKnockoutPairings");
+    if (!container) return;
+    container.style.display = knockoutAssignmentMode === "MANUAL" ? "block" : "none";
+    if (knockoutAssignmentMode !== "MANUAL") return;
+    const participants = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).participantes;
+    renderManualPairingControls(
+      "manualKnockoutPairings",
+      participants.map((participant) => ({
+        value: participant.id,
+        label: participant.nombres.join(" / "),
+      })),
+      participants.length,
+    );
+  }
+
+  function getQualifiedGroupEntries() {
+    const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
+    const places = Number(document.getElementById("clasificanGruposInput")?.value) ||
+      detail.competicion?.clasifican || 1;
+    return Object.keys(detail.clasificacion || {}).sort().flatMap((group) =>
+      (detail.clasificacion[group] || []).slice(0, places).map((entry, index) => ({
+        id: entry.id,
+        group,
+        position: index + 1,
+        name: entry.nombre,
+      })),
+    );
+  }
+
+  function renderGroupKnockoutPairings() {
+    const container = document.getElementById("groupManualKnockoutPairings");
+    if (!container) return;
+    container.style.display = groupKnockoutAssignmentMode === "MANUAL" ? "block" : "none";
+    if (groupKnockoutAssignmentMode !== "MANUAL") return;
+    const qualified = getQualifiedGroupEntries();
+    renderManualPairingControls(
+      "groupManualKnockoutPairings",
+      qualified.map((entry) => ({
+        value: `${entry.group}:${entry.position}`,
+        label: `${entry.position}º Grupo ${entry.group} · ${entry.name}`,
+      })),
+      qualified.length,
+    );
+  }
+
+  function getManualPairings(containerId, entrantCount) {
+    const selected = [...document.querySelectorAll(`#${containerId} .manual-pairing-slot`)]
+      .map((select) => select.value);
+    const slotCount = Math.pow(2, Math.ceil(Math.log2(Math.max(entrantCount, 2))));
+    while (selected.length < slotCount) selected.push("");
+    return Array.from({ length: slotCount / 2 }, (_, index) =>
+      selected.slice(index * 2, index * 2 + 2),
+    );
   }
 
   function refreshGroupAllocationPreview() {
@@ -1345,6 +1509,21 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (detail.competicion) {
       if (setupForm) setupForm.style.display = "none";
       if (activeActions) activeActions.style.display = "block";
+      const groupKnockoutConfig = document.getElementById("groupKnockoutConfig");
+      const generateBracketButton = document.getElementById("btnGenerateEliminatoria");
+      const canGenerateGroupBracket = detail.competicion.sistema === "GRUPOS" &&
+        detail.todosGruposTerminados &&
+        getQualifiedGroupEntries().length >= 2;
+      if (groupKnockoutConfig)
+        groupKnockoutConfig.style.display = detail.competicion.sistema === "GRUPOS" ? "block" : "none";
+      if (generateBracketButton) {
+        generateBracketButton.style.display = detail.competicion.sistema === "GRUPOS" ? "block" : "none";
+        generateBracketButton.disabled = !canGenerateGroupBracket;
+        generateBracketButton.title = canGenerateGroupBracket
+          ? "Generar los cruces de los clasificados"
+          : "Termina todos los partidos de grupo para generar el cuadro";
+      }
+      renderGroupKnockoutPairings();
       if (statusOverview) {
         statusOverview.innerHTML = `
           <div class="badge badge-definitiva" style="font-size:13px; padding:6px 12px; width:100%; justify-content:center;">
@@ -1363,6 +1542,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         `;
       }
     }
+    renderManualGroupAssignments();
+    renderDirectKnockoutPairings();
 
     const configEl = document.getElementById("managerCompetitionConfig");
     if (configEl) {
@@ -1471,6 +1652,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const container = document.getElementById("rankTableContainer");
     const titleEl = document.getElementById("rankTableTitle");
     if (!container) return;
+    const updatedBadge = document.getElementById("rankUpdatedBadge");
+    if (updatedBadge) {
+      updatedBadge.className = data.provisional ? "badge badge-borrador" : "badge badge-definitiva";
+      updatedBadge.textContent = data.provisional
+        ? "Ranking provisional · en actualización"
+        : `Actualizado ${data.generado}`;
+    }
 
     const levelSegment = document.getElementById("levelSegmentRank");
     const isSingle = rankType === "IM" || rankType === "IF";
@@ -1765,6 +1953,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           if (connText) connText.textContent = "Google Sheets Conectado";
           loadJornadasManager();
           loadJornadasVisualizer();
+          renderRankingsTable();
           alert("¡Conexión con Google Sheets verificada correctamente!");
         } catch (e) {
           if (statusBadge) {

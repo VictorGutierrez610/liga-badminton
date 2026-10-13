@@ -1,6 +1,6 @@
 ﻿export const APPS_SCRIPT_CODE = `// =====================================================================
 //  LIGA DE BADMINTON DE LOS VIERNES - BACKEND COMPLETO (Codigo.gs)
-//  Hoja de Calculo ID: 1wjKLBnakvjzdUmiio_BqTRSpP9Q9TONOmX37PwsbdtI
+//  Hoja de Calculo ID: 1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y
 //
 //  PESTANAS NECESARIAS EN LA HOJA DE CALCULO:
 //    - Socios       -> ID | Nombre | Apellidos | Categoria | Sexo

@@ -149,8 +149,23 @@
             <label class="form-label">Número de Grupos:</label>
             <input type="number" id="numGruposInput" class="form-control" value="2" min="2" max="4" style="margin-bottom:10px;" />
             <label class="form-label">Clasifican por Grupo:</label>
-            <input type="number" id="clasificanGruposInput" class="form-control" value="2" min="1" max="4" />
+            <input type="number" id="clasificanGruposInput" class="form-control" value="2" min="1" max="4" style="margin-bottom:10px;" />
+            <label class="form-label" for="groupAssignmentMode">Asignación de participantes:</label>
+            <select id="groupAssignmentMode" class="form-select" style="margin-bottom:10px;">
+              <option value="ALEATORIO">Aleatorio</option>
+              <option value="MANUAL">Manual</option>
+            </select>
+            <div id="manualGroupAssignments" style="display:none;"></div>
             <div id="groupAllocationPreview" class="text-muted" style="font-size:12px; margin-top:8px; line-height:1.5;"></div>
+          </div>
+
+          <div id="knockoutConfigBox" style="display:none; margin-bottom:14px;">
+            <label class="form-label" for="knockoutAssignmentMode">Configuración de cruces:</label>
+            <select id="knockoutAssignmentMode" class="form-select">
+              <option value="ALEATORIO">Aleatorio</option>
+              <option value="MANUAL">Manual</option>
+            </select>
+            <div id="manualKnockoutPairings" style="display:none; margin-top:10px;"></div>
           </div>
 
           <div id="compSetupError" class="text-red" style="font-size:12px; margin-bottom:10px;"></div>
@@ -161,6 +176,14 @@
         </div>
 
         <div id="compActiveActions" class="competition-actions" style="display:none;">
+          <div id="groupKnockoutConfig" style="display:none; text-align:left;">
+            <label class="form-label" for="groupKnockoutAssignmentMode">Método para generar los cruces:</label>
+            <select id="groupKnockoutAssignmentMode" class="form-select">
+              <option value="ALEATORIO">Aleatorio</option>
+              <option value="MANUAL">Manual</option>
+            </select>
+            <div id="groupManualKnockoutPairings" style="display:none; margin-top:10px;"></div>
+          </div>
           <button class="btn btn-secondary btn-sm" id="btnGenerateEliminatoria">
             ⚔️ Generar Cuadro Eliminatorio Final
           </button>
