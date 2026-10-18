@@ -17,6 +17,29 @@ export const CATEGORIAS = {
   'Dobles mixtos': ['DX']
 };
 
+const MUTATING_REMOTE_ACTIONS = new Set([
+  'crearJornada',
+  'guardarJornadaDefinitiva',
+  'borrarJornada',
+  'anadirInscrito',
+  'quitarInscrito',
+  'crearCompeticion',
+  'guardarPartidos',
+  'borrarCompeticion',
+  'guardarResultado',
+  'borrarResultado',
+  'syncAll'
+]);
+
+const ROUND_STAGE = {
+  'Fase de grupos': 0,
+  Dieciseisavos: 1,
+  Octavos: 2,
+  Cuartos: 3,
+  Semifinal: 4,
+  Final: 5
+};
+
 export const INITIAL_SOCIOS = [
   { id: '1', nombre: 'Molaye', apellidos: 'Mohamed Ahid', sexo: 'M', categoria: 'B' },
   { id: '2', nombre: 'Darío', apellidos: 'Dámaso', sexo: 'M', categoria: 'A' },
@@ -32,7 +55,7 @@ export const INITIAL_SOCIOS = [
 
 export const INITIAL_JORNADAS = [];
 
-class BadmintonEngine {
+export class BadmintonEngine {
   constructor() {
     this.storageKey = 'liga_badminton_data_v2';
     this.webAppUrlKey = 'liga_badminton_script_url';
@@ -42,6 +65,11 @@ class BadmintonEngine {
     this.inscritos = {};
     this.competiciones = {};
     this.partidos = [];
+    this.remoteRevision = null;
+    this.remoteConflictRevision = null;
+    this.localChangesPending = false;
+    this.lastSyncStatus = 'unknown';
+    this.lastRemoteError = '';
     this.loadState();
   }
 
@@ -59,6 +87,11 @@ class BadmintonEngine {
         this.inscritos = parsed.inscritos || {};
         this.competiciones = parsed.competiciones || {};
         this.partidos = Array.isArray(parsed.partidos) ? parsed.partidos : [];
+        this.remoteRevision = typeof parsed.remoteRevision === 'string' ? parsed.remoteRevision : null;
+        this.remoteConflictRevision = typeof parsed.remoteConflictRevision === 'string'
+          ? parsed.remoteConflictRevision
+          : null;
+        this.localChangesPending = parsed.localChangesPending === true;
       } catch (e) {
         this.initDefaultData();
       }
@@ -83,7 +116,10 @@ class BadmintonEngine {
         jornadas: this.jornadas,
         inscritos: this.inscritos,
         competiciones: this.competiciones,
-        partidos: this.partidos
+        partidos: this.partidos,
+        remoteRevision: this.remoteRevision,
+        remoteConflictRevision: this.remoteConflictRevision,
+        localChangesPending: this.localChangesPending
       }));
     }
   }
@@ -99,6 +135,9 @@ class BadmintonEngine {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(this.webAppUrlKey, url);
     }
+    this.remoteRevision = null;
+    this.remoteConflictRevision = null;
+    this.saveState();
   }
 
   getAdminPin() {
@@ -161,7 +200,29 @@ class BadmintonEngine {
   async callRemote(action, payload = {}, { strict = false } = {}) {
     const url = this.getWebAppUrl();
     if (!url || url.includes('TU_SCRIPT_ID_DESPLEGADO')) {
-      console.warn('URL de Apps Script no configurada. Trabajando en modo local.');
+      this.lastSyncStatus = 'local-only';
+      this.localChangesPending = this.localChangesPending || MUTATING_REMOTE_ACTIONS.has(action);
+      this.lastRemoteError = 'No hay una conexión de Google Sheets configurada.';
+      this.saveState();
+      return null;
+    }
+
+    const isMutation = MUTATING_REMOTE_ACTIONS.has(action);
+    if (isMutation && action !== 'syncAll' && this.localChangesPending) {
+      const error = new Error('Hay cambios locales pendientes. Sincroniza o vuelve a cargar los datos antes de enviar otra modificación.');
+      this.lastSyncStatus = 'local-only';
+      this.lastRemoteError = error.message;
+      if (strict) throw error;
+      this.saveState();
+      return null;
+    }
+    if (isMutation && !this.remoteRevision) {
+      const error = new Error('Carga primero el estado actual de Google Sheets antes de modificar o sincronizar datos.');
+      this.lastSyncStatus = 'remote-error';
+      this.lastRemoteError = error.message;
+      if (strict) throw error;
+      this.localChangesPending = true;
+      this.saveState();
       return null;
     }
 
@@ -170,7 +231,12 @@ class BadmintonEngine {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action, pin, ...payload })
+        body: JSON.stringify({
+          action,
+          pin,
+          ...(isMutation ? { expectedRevision: this.remoteRevision } : {}),
+          ...payload
+        })
       });
       const responseText = await response.text();
       let data;
@@ -189,11 +255,19 @@ class BadmintonEngine {
       if (!response.ok || data.error || data.success === false) {
         throw new Error(data.error || `Error HTTP ${response.status}`);
       }
+      if (isMutation && typeof data.revision === 'string') this.remoteRevision = data.revision;
+      else if (isMutation && typeof data.result?.revision === 'string') this.remoteRevision = data.result.revision;
+      if (action === 'syncAll') this.localChangesPending = false;
+      if (isMutation) this.lastSyncStatus = 'synced';
       this.lastRemoteError = '';
+      if (isMutation) this.saveState();
       return data.result;
     } catch (e) {
       console.warn('Llamada a Google Apps Script fallida, recurriendo a datos locales:', e);
       this.lastRemoteError = e.message || String(e);
+      this.lastSyncStatus = isMutation && !strict ? 'local-only' : 'remote-error';
+      if (isMutation) this.localChangesPending = true;
+      if (isMutation) this.saveState();
       if (strict) throw e;
       return null;
     }
@@ -228,10 +302,30 @@ class BadmintonEngine {
     return this.getJornadas();
   }
 
-  async fetchAllFromSheets() {
+  async fetchAllFromSheets({ discardLocal = false } = {}) {
     const remote = await this.callRemote('getAllData', {}, { strict: true });
-    if (!remote || !Array.isArray(remote.jornadas) || !Array.isArray(remote.partidos)) {
-      throw new Error('Apps Script no devolvió el conjunto de datos esperado.');
+    if (
+      !remote ||
+      !Array.isArray(remote.jornadas) ||
+      !Array.isArray(remote.partidos) ||
+      typeof remote.revision !== 'string' ||
+      !remote.revision
+    ) {
+      this.lastSyncStatus = 'remote-error';
+      this.lastRemoteError = 'Apps Script no devolvió una revisión de datos. Despliega el backend actualizado antes de sincronizar.';
+      throw new Error(this.lastRemoteError);
+    }
+
+    if (this.localChangesPending && !discardLocal) {
+      this.remoteConflictRevision = !this.remoteRevision || remote.revision !== this.remoteRevision
+        ? remote.revision
+        : null;
+      this.lastSyncStatus = this.remoteConflictRevision ? 'remote-error' : 'local-only';
+      this.lastRemoteError = this.remoteConflictRevision
+        ? 'Hay cambios locales pendientes y Google Sheets también cambió. Elige explícitamente qué versión conservar.'
+        : 'Hay cambios locales pendientes; se conservaron y no se reemplazaron con la copia remota.';
+      this.saveState();
+      return remote;
     }
 
     this.socios = Array.isArray(remote.socios) ? remote.socios : this.socios;
@@ -239,8 +333,22 @@ class BadmintonEngine {
     this.inscritos = remote.inscritos || {};
     this.competiciones = remote.competiciones || {};
     this.partidos = remote.partidos;
+    this.remoteRevision = remote.revision;
+    this.remoteConflictRevision = null;
+    this.localChangesPending = false;
+    this.lastSyncStatus = 'synced';
+    this.lastRemoteError = '';
     this.saveState();
     return remote;
+  }
+
+  async persistFullStateOrLocal(data) {
+    if (!this.getWebAppUrl() || !this.remoteRevision) {
+      this.localChangesPending = true;
+      this.lastSyncStatus = 'local-only';
+      return null;
+    }
+    return this.syncAllToSheets(data);
   }
 
   getJornadas() {
@@ -257,6 +365,22 @@ class BadmintonEngine {
   }
 
   async crearJornada(data) {
+    if (!['UNO', 'TRES', 'MIXTO'].includes(data.formato)) {
+      throw new Error('Selecciona un formato de juego válido.');
+    }
+    const puntosSet = Number(data.puntosSet);
+    if (!Number.isInteger(puntosSet) || puntosSet < 1 || puntosSet > 50) {
+      throw new Error('Los puntos por set deben ser un entero entre 1 y 50.');
+    }
+    if (data.formato === 'MIXTO') {
+      const threshold = String(data.desde || '').trim().toLocaleLowerCase('es');
+      const hasValidThreshold = threshold.includes('eliminatoria') ||
+        Object.keys(ROUND_STAGE).some(round => threshold.includes(round.toLocaleLowerCase('es')));
+      if (!hasValidThreshold) {
+        throw new Error('Para el formato mixto, indica una ronda válida en "Desde".');
+      }
+    }
+
     const id = data.id || 'J' + String(data.fecha).replace(/-/g, '');
     if (this.jornadas.some(j => j.id === id)) {
       throw new Error('Ya existe una jornada para esa fecha.');
@@ -267,7 +391,7 @@ class BadmintonEngine {
       modalidad: data.modalidad,
       formato: data.formato,
       desde: data.formato === 'MIXTO' ? data.desde : '',
-      puntosSet: Number(data.puntosSet) || 15,
+      puntosSet,
       ganarPor2: !!data.ganarPor2,
       definitiva: false,
       partidos: 0
@@ -275,7 +399,7 @@ class BadmintonEngine {
 
     this.jornadas.push(nueva);
     this.saveState();
-    void this.callRemote('crearJornada', { jornada: nueva }, { strict: false }).catch(() => {});
+    await this.callRemote('crearJornada', { jornada: nueva }, { strict: false });
     return nueva;
   }
 
@@ -302,7 +426,7 @@ class BadmintonEngine {
       if (k.startsWith(idJornada + '_')) delete this.competiciones[k];
     });
     this.saveState();
-    void this.callRemote('borrarJornada', { idJornada }, { strict: false }).catch(() => {});
+    await this.callRemote('borrarJornada', { idJornada }, { strict: false });
     return true;
   }
 
@@ -345,7 +469,7 @@ class BadmintonEngine {
     const nombres = ids.map(id => this.getNombreSocio(id));
     list.push({ id: partId, ids, nombres });
     this.saveState();
-    void this.callRemote('anadirInscrito', { idJornada, categoria, ids, nombres }, { strict: false }).catch(() => {});
+    await this.callRemote('anadirInscrito', { idJornada, categoria, ids, nombres }, { strict: false });
     return true;
   }
 
@@ -358,7 +482,7 @@ class BadmintonEngine {
       this.inscritos[key] = this.inscritos[key].filter(x => x.id !== idPart);
       this.saveState();
     }
-    void this.callRemote('quitarInscrito', { idJornada, categoria, idPart }, { strict: false }).catch(() => {});
+    await this.callRemote('quitarInscrito', { idJornada, categoria, idPart }, { strict: false });
     return true;
   }
 
@@ -428,7 +552,7 @@ class BadmintonEngine {
     this.competiciones[key] = competitionConfig;
     this.partidos.push(...newMatches);
     this.saveState();
-    await this.callRemote('crearCompeticion', {
+    const remoteResult = await this.callRemote('crearCompeticion', {
       idJornada,
       categoria,
       cfg: competitionConfig,
@@ -438,7 +562,7 @@ class BadmintonEngine {
       await this.advanceKnockoutBracket(idJornada, categoria, newMatches[0].ronda);
     }
 
-    return true;
+    return remoteResult;
   }
 
   async borrarCompeticion(idJornada, categoria) {
@@ -446,7 +570,7 @@ class BadmintonEngine {
     delete this.competiciones[key];
     this.partidos = this.partidos.filter(p => !(p.jornada === idJornada && p.categoria === categoria));
     this.saveState();
-    void this.callRemote('borrarCompeticion', { idJornada, categoria }, { strict: false }).catch(() => {});
+    await this.callRemote('borrarCompeticion', { idJornada, categoria }, { strict: false });
     return true;
   }
 
@@ -460,13 +584,26 @@ class BadmintonEngine {
     };
   }
 
-  async syncAllToSheets(data = this.getStateSnapshot()) {
+  async syncAllToSheets(data = this.getStateSnapshot(), { confirmedOverwrite = false } = {}) {
     if (!Array.isArray(data.jornadas) || !Array.isArray(data.partidos)) {
       throw new Error('El estado local no contiene listas válidas de jornadas y partidos.');
     }
 
     try {
-      return await this.callRemote('syncAll', { data }, { strict: true });
+      if (this.remoteConflictRevision) {
+        if (!confirmedOverwrite) {
+          throw new Error('Google Sheets tiene cambios distintos. Confirma explícitamente si quieres reemplazarlos con la copia local.');
+        }
+        this.remoteRevision = this.remoteConflictRevision;
+      }
+      if (!this.remoteRevision) {
+        throw new Error('No se puede reemplazar la hoja sin una revisión remota cargada. Actualiza los datos y resuelve las diferencias antes de sincronizar.');
+      }
+      const result = await this.callRemote('syncAll', { data }, { strict: true });
+      if (result?.revision) this.remoteRevision = result.revision;
+      this.remoteConflictRevision = null;
+      this.saveState();
+      return result;
     } catch (error) {
       if (error.code !== 'NON_JSON_RESPONSE') throw error;
 
@@ -485,10 +622,20 @@ class BadmintonEngine {
         );
       }
 
+      this.remoteRevision = remote.revision || null;
+      if (!this.remoteRevision) {
+        throw new Error('Google Sheets no devolvió una revisión para verificar la sincronización.');
+      }
+      this.remoteConflictRevision = null;
+      this.localChangesPending = false;
+      this.lastSyncStatus = 'synced';
+      this.lastRemoteError = '';
+      this.saveState();
       return {
         jornadas: data.jornadas.length,
         partidos: data.partidos.length,
-        verified: true
+        verified: true,
+        revision: remote.revision || null
       };
     }
   }
@@ -498,32 +645,85 @@ class BadmintonEngine {
       !actual ||
       !Array.isArray(actual.jornadas) ||
       !Array.isArray(actual.partidos) ||
-      !Array.isArray(actual.socios)
+      !Array.isArray(actual.socios) ||
+      !actual.inscritos ||
+      !actual.competiciones ||
+      !Array.isArray(expected.jornadas) ||
+      !Array.isArray(expected.partidos) ||
+      !expected.inscritos ||
+      !expected.competiciones
     ) {
       return false;
     }
 
     if (
       actual.jornadas.length !== expected.jornadas.length ||
-      actual.partidos.length !== expected.partidos.length
+      actual.partidos.length !== expected.partidos.length ||
+      Object.keys(actual.inscritos).length !== Object.keys(expected.inscritos).length ||
+      Object.keys(actual.competiciones).length !== Object.keys(expected.competiciones).length
     ) {
       return false;
     }
-    const actualJornadaIds = new Set(actual.jornadas.map(jornada => String(jornada.id)));
-    if (!expected.jornadas.every(jornada => actualJornadaIds.has(String(jornada.id)))) {
-      return false;
+
+    const actualJornadas = new Map(actual.jornadas.map(jornada => [String(jornada.id), jornada]));
+    const sameJornadas = expected.jornadas.every(expectedJornada => {
+      const jornada = actualJornadas.get(String(expectedJornada.id));
+      return jornada &&
+        String(jornada.fecha) === String(expectedJornada.fecha) &&
+        jornada.modalidad === expectedJornada.modalidad &&
+        jornada.formato === expectedJornada.formato &&
+        String(jornada.desde || '') === String(expectedJornada.desde || '') &&
+        Number(jornada.puntosSet) === Number(expectedJornada.puntosSet) &&
+        Boolean(jornada.ganarPor2) === Boolean(expectedJornada.ganarPor2) &&
+        Boolean(jornada.definitiva) === Boolean(expectedJornada.definitiva);
+    });
+    if (!sameJornadas) return false;
+
+    const sameParticipants = (left = [], right = []) =>
+      JSON.stringify(left.map(String)) === JSON.stringify(right.map(String));
+    const sameNames = (left = [], right = []) =>
+      JSON.stringify(left) === JSON.stringify(right);
+    for (const key of Object.keys(expected.inscritos)) {
+      const actualList = actual.inscritos[key];
+      const expectedList = expected.inscritos[key];
+      if (!Array.isArray(actualList) || !Array.isArray(expectedList) || actualList.length !== expectedList.length) {
+        return false;
+      }
+      const actualListById = new Map(actualList.map(participant => [String(participant.id), participant]));
+      if (!expectedList.every(participant => {
+        const actualParticipant = actualListById.get(String(participant.id));
+        return actualParticipant &&
+          sameParticipants(actualParticipant.ids || [], participant.ids || []) &&
+          sameNames(actualParticipant.nombres || [], participant.nombres || []);
+      })) return false;
+    }
+    for (const key of Object.keys(expected.competiciones)) {
+      const actualCompetition = actual.competiciones[key];
+      const expectedCompetition = expected.competiciones[key];
+      if (!actualCompetition ||
+          actualCompetition.sistema !== expectedCompetition.sistema ||
+          Number(actualCompetition.grupos || 0) !== Number(expectedCompetition.grupos || 0) ||
+          Number(actualCompetition.clasifican || 0) !== Number(expectedCompetition.clasifican || 0)) {
+        return false;
+      }
     }
 
     const actualMatches = new Map(actual.partidos.map(match => [String(match.id), match]));
     return expected.partidos.every(expectedMatch => {
       const actualMatch = actualMatches.get(String(expectedMatch.id));
       return actualMatch &&
-        actualMatch.jornada === expectedMatch.jornada &&
+        String(actualMatch.jornada) === String(expectedMatch.jornada) &&
+        String(actualMatch.fecha) === String(expectedMatch.fecha) &&
         actualMatch.categoria === expectedMatch.categoria &&
+        actualMatch.ronda === expectedMatch.ronda &&
+        String(actualMatch.grupo || '') === String(expectedMatch.grupo || '') &&
+        Number(actualMatch.orden || 0) === Number(expectedMatch.orden || 0) &&
         actualMatch.estado === expectedMatch.estado &&
         actualMatch.ganador === expectedMatch.ganador &&
-        JSON.stringify(actualMatch.idsA || []) === JSON.stringify(expectedMatch.idsA || []) &&
-        JSON.stringify(actualMatch.idsB || []) === JSON.stringify(expectedMatch.idsB || []) &&
+        sameParticipants(actualMatch.idsA || [], expectedMatch.idsA || []) &&
+        sameNames(actualMatch.nomA || [], expectedMatch.nomA || []) &&
+        sameParticipants(actualMatch.idsB || [], expectedMatch.idsB || []) &&
+        sameNames(actualMatch.nomB || [], expectedMatch.nomB || []) &&
         JSON.stringify(actualMatch.sets || []) === JSON.stringify(expectedMatch.sets || []);
     });
   }
@@ -643,6 +843,26 @@ class BadmintonEngine {
     }[ronda] || '';
   }
 
+  getRoundsToInvalidate(match) {
+    const key = `${match.jornada}_${match.categoria}`;
+    const competition = this.competiciones[key];
+    if (match.ronda === 'Fase de grupos' && competition?.sistema === 'GRUPOS') {
+      return new Set(this.partidos
+        .filter(item => item.jornada === match.jornada &&
+          item.categoria === match.categoria &&
+          item.ronda !== 'Fase de grupos')
+        .map(item => item.ronda));
+    }
+
+    const rounds = new Set();
+    let round = match.ronda;
+    while (this.nextKnockoutRound(round)) {
+      round = this.nextKnockoutRound(round);
+      rounds.add(round);
+    }
+    return rounds;
+  }
+
   createNextKnockoutRound(sourceMatches, jornada, categoria, ronda) {
     const nextRound = this.nextKnockoutRound(ronda);
     if (!nextRound) return [];
@@ -721,24 +941,38 @@ class BadmintonEngine {
       );
       const existingByOrder = new Map(existingMatches.map(match => [match.orden, match]));
       const matchesToSave = [];
+      let participantsChanged = false;
       const reconciledMatches = generatedMatches.map(generated => {
         const existing = existingByOrder.get(generated.orden);
         const sameParticipants = existing &&
           JSON.stringify(existing.idsA || []) === JSON.stringify(generated.idsA) &&
           JSON.stringify(existing.idsB || []) === JSON.stringify(generated.idsB);
         if (sameParticipants) return existing;
+        if (existing) participantsChanged = true;
         matchesToSave.push(generated);
         return generated;
       });
       const reconciledOrders = new Set(reconciledMatches.map(match => match.orden));
+      const descendantRounds = new Set();
+      if (participantsChanged) {
+        let descendant = nextRound;
+        while (this.nextKnockoutRound(descendant)) {
+          descendant = this.nextKnockoutRound(descendant);
+          descendantRounds.add(descendant);
+        }
+      }
       const updatedMatches = this.partidos.filter(match =>
-        !(match.jornada === idJornada && match.categoria === categoria &&
-          match.ronda === nextRound && !reconciledOrders.has(match.orden))
+        !(match.jornada === idJornada && match.categoria === categoria && (
+          (match.ronda === nextRound && !reconciledOrders.has(match.orden)) ||
+          descendantRounds.has(match.ronda)
+        ))
       );
       const updatedById = new Set(updatedMatches.map(match => match.id));
       updatedMatches.push(...reconciledMatches.filter(match => !updatedById.has(match.id)));
 
-      if (matchesToSave.length) {
+      if (participantsChanged && descendantRounds.size) {
+        await this.persistFullStateOrLocal({ ...this.getStateSnapshot(), partidos: updatedMatches });
+      } else if (matchesToSave.length) {
         await this.persistBracketMatches(matchesToSave, updatedMatches);
       }
       this.partidos = updatedMatches;
@@ -830,6 +1064,10 @@ class BadmintonEngine {
 
   calcClasificacion(inscritos, partidos, comp) {
     const stats = {};
+    const participantByMatchIds = new Map(inscritos.map(participant => [
+      [...(participant.ids || [])].map(String).sort((a, b) => Number(a) - Number(b)).join('+'),
+      participant.id
+    ]));
     inscritos.forEach(i => {
       stats[i.id] = {
         id: i.id,
@@ -844,6 +1082,16 @@ class BadmintonEngine {
         diffPuntosGrupo: 0,
         pts: 0
       };
+    });
+
+    partidos.forEach(match => {
+      if (match.ronda !== 'Fase de grupos' || !match.grupo) return;
+      [match.idsA || [], match.idsB || []].forEach(ids => {
+        const participantId = participantByMatchIds.get(
+          [...ids].map(String).sort((a, b) => Number(a) - Number(b)).join('+')
+        );
+        if (participantId && stats[participantId]) stats[participantId].grupo = match.grupo;
+      });
     });
 
     partidos.forEach(p => {
@@ -901,15 +1149,96 @@ class BadmintonEngine {
     return grupos;
   }
 
+  getEffectiveMatchFormat(jornada, match) {
+    if (jornada.formato !== 'MIXTO') {
+      if (jornada.formato === 'UNO' || jornada.formato === 'TRES') return jornada.formato;
+      throw new Error('El formato de juego de la jornada no es válido.');
+    }
+
+    const threshold = String(jornada.desde || '').trim().toLocaleLowerCase('es');
+    const configuredStage = threshold.includes('eliminatoria')
+      ? 1
+      : Object.entries(ROUND_STAGE).find(([round]) =>
+          threshold.includes(round.toLocaleLowerCase('es'))
+        )?.[1];
+    if (configuredStage === undefined) {
+      throw new Error('Configura "Desde" con una ronda válida para aplicar el formato mixto.');
+    }
+
+    const matchStage = ROUND_STAGE[match.ronda];
+    if (matchStage === undefined) {
+      throw new Error(`No se puede determinar el formato para la ronda "${match.ronda}".`);
+    }
+    return matchStage >= configuredStage ? 'TRES' : 'UNO';
+  }
+
+  validateScore(match, sets) {
+    if (!Array.isArray(sets) || sets.length < 1 || sets.length > 3) {
+      throw new Error('Introduce entre uno y tres sets completos.');
+    }
+    if (match.estado === 'Bye' || !match.idsA?.length || !match.idsB?.length) {
+      throw new Error('No se puede puntuar un enfrentamiento sin dos participantes.');
+    }
+
+    const jornada = this.jornadas.find(item => item.id === match.jornada);
+    if (!jornada) throw new Error('No se encuentra la jornada del partido.');
+    const target = Number(jornada.puntosSet);
+    if (!Number.isInteger(target) || target < 1 || target > 50) {
+      throw new Error('La jornada tiene una puntuación por set no válida.');
+    }
+
+    const setWinners = sets.map((set, index) => {
+      if (
+        !Array.isArray(set) ||
+        set.length !== 2 ||
+        !set.every(score => Number.isInteger(score) && score >= 0 && score <= 50)
+      ) {
+        throw new Error(`El set ${index + 1} debe tener dos puntuaciones enteras entre 0 y 50.`);
+      }
+      if (set[0] === set[1]) {
+        throw new Error(`El set ${index + 1} no puede terminar empatado.`);
+      }
+
+      const winnerScore = Math.max(set[0], set[1]);
+      const loserScore = Math.min(set[0], set[1]);
+      if (jornada.ganarPor2) {
+        if (winnerScore < target || winnerScore - loserScore < 2) {
+          throw new Error(`El set ${index + 1} debe alcanzar ${target} puntos y ganarse por al menos dos.`);
+        }
+      } else if (winnerScore !== target || loserScore >= target) {
+        throw new Error(`El set ${index + 1} debe terminar al llegar a ${target} puntos.`);
+      }
+      return set[0] > set[1] ? 'A' : 'B';
+    });
+
+    const format = this.getEffectiveMatchFormat(jornada, match);
+    if (format === 'UNO' && sets.length !== 1) {
+      throw new Error('Este partido se juega a un solo set.');
+    }
+    if (format === 'TRES') {
+      if (sets.length < 2) throw new Error('Este partido requiere al menos dos sets.');
+      let winsA = 0;
+      let winsB = 0;
+      for (let index = 0; index < setWinners.length; index++) {
+        if (setWinners[index] === 'A') winsA++;
+        else winsB++;
+        if ((winsA === 2 || winsB === 2) && index !== setWinners.length - 1) {
+          throw new Error('No se pueden registrar sets después de que un lado haya ganado dos.');
+        }
+      }
+      if (Math.max(winsA, winsB) !== 2) {
+        throw new Error('El resultado debe decidirse al mejor de tres sets.');
+      }
+    }
+    return setWinners.filter(winner => winner === 'A').length >
+      setWinners.filter(winner => winner === 'B').length ? 'A' : 'B';
+  }
+
   async guardarResultado(idPartido, sets) {
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
 
-    let setsA = 0, setsB = 0;
-    sets.forEach(s => {
-      if (s[0] > s[1]) setsA++; else setsB++;
-    });
-    const ganador = setsA > setsB ? 'A' : 'B';
+    const ganador = this.validateScore(p, sets);
     const updatedMatch = { ...p, sets, estado: 'Jugado', ganador, registrado: Date.now() };
     try {
       await this.callRemote('guardarResultado', {
@@ -927,20 +1256,40 @@ class BadmintonEngine {
       await this.syncAllToSheets({ ...this.getStateSnapshot(), partidos: updatedMatches });
     }
 
+    const invalidateDownstream =
+      p.ronda === 'Fase de grupos'
+        ? this.getRoundsToInvalidate(p).size > 0
+        : p.estado !== 'Jugado' || (p.ganador && p.ganador !== ganador);
     Object.assign(p, updatedMatch);
+    const roundsToInvalidate = this.getRoundsToInvalidate(p);
+    if (invalidateDownstream && roundsToInvalidate.size) {
+      const updatedMatches = this.partidos.filter(match =>
+        !(match.jornada === p.jornada && match.categoria === p.categoria &&
+          roundsToInvalidate.has(match.ronda))
+      );
+      await this.persistFullStateOrLocal({ ...this.getStateSnapshot(), partidos: updatedMatches });
+      this.partidos = updatedMatches;
+    }
     this.saveState();
     await this.advanceKnockoutBracket(p.jornada, p.categoria, p.ronda);
     return true;
   }
 
   async borrarResultado(idPartido) {
-    await this.callRemote('borrarResultado', { idPartido }, { strict: true });
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
-    p.sets = [];
-    p.estado = 'Pendiente';
-    p.ganador = '';
-    p.registrado = '';
+    const updatedMatch = { ...p, sets: [], estado: 'Pendiente', ganador: '', registrado: '' };
+    const laterRounds = this.getRoundsToInvalidate(p);
+    const updatedMatches = this.partidos.filter(match =>
+      !(match.jornada === p.jornada && match.categoria === p.categoria && laterRounds.has(match.ronda))
+    ).map(match => match.id === idPartido ? updatedMatch : match);
+
+    if (laterRounds.size) {
+      await this.persistFullStateOrLocal({ ...this.getStateSnapshot(), partidos: updatedMatches });
+    } else {
+      await this.persistBracketMatches([updatedMatch], updatedMatches);
+    }
+    this.partidos = updatedMatches;
     this.saveState();
     return true;
   }
@@ -987,18 +1336,13 @@ class BadmintonEngine {
     const updatedMatches = this.partidos.map(partido =>
       partido.id === idPartido ? updatedMatch : partido
     );
-    if (match.ronda !== 'Fase de grupos') {
-      const laterRounds = new Set();
-      let round = match.ronda;
-      while (this.nextKnockoutRound(round)) {
-        round = this.nextKnockoutRound(round);
-        laterRounds.add(round);
-      }
+    const laterRounds = this.getRoundsToInvalidate(match);
+    if (laterRounds.size) {
       const retainedMatches = updatedMatches.filter(partido =>
         !(partido.jornada === match.jornada && partido.categoria === match.categoria &&
           laterRounds.has(partido.ronda))
       );
-      await this.syncAllToSheets({ ...this.getStateSnapshot(), partidos: retainedMatches });
+      await this.persistFullStateOrLocal({ ...this.getStateSnapshot(), partidos: retainedMatches });
       this.partidos = retainedMatches;
       this.saveState();
       await this.advanceKnockoutBracket(match.jornada, match.categoria, match.ronda);

@@ -15,6 +15,7 @@ const SHEET_ID = '1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y';
 const PIN_ADMIN = ''; // Estipulada por la administración
 
 function doPost(e) {
+  let lock = null;
   try {
     const request = JSON.parse(e.postData.contents);
     const action  = request.action;
@@ -22,6 +23,17 @@ function doPost(e) {
 
     if (PIN_ADMIN && String(pin) !== String(PIN_ADMIN)) {
       return responseJSON({ error: 'PIN de administracion incorrecto.' });
+    }
+
+    lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+
+    const readActions = ['getSocios', 'getJornadas', 'getAllData'];
+    if (readActions.indexOf(action) === -1) {
+      const actualRevision = getSheetsRevision();
+      if (!request.expectedRevision || String(request.expectedRevision) !== actualRevision) {
+        throw new Error('Los datos de Google Sheets cambiaron desde la última carga. Vuelve a cargar los datos y revisa los cambios antes de sincronizar.');
+      }
     }
 
     let result = null;
@@ -39,12 +51,14 @@ function doPost(e) {
     else if (action === 'borrarCompeticion')       result = borrarCompeticion(request.idJornada, request.categoria);
     else if (action === 'guardarResultado')        result = guardarResultado(request.idPartido, request.sets, request.ganador, request.partido);
     else if (action === 'borrarResultado')         result = borrarResultado(request.idPartido);
-    else if (action === 'syncAll')                 result = syncAll(request.data);
+    else if (action === 'syncAll')                 result = syncAll(request.data, request.expectedRevision);
     else return responseJSON({ error: 'Accion no valida: ' + action });
 
-    return responseJSON({ success: true, result });
+    return responseJSON({ success: true, result, revision: getSheetsRevision() });
   } catch (err) {
     return responseJSON({ error: err.message || String(err) });
+  } finally {
+    if (lock && lock.hasLock()) lock.releaseLock();
   }
 }
 
@@ -72,6 +86,25 @@ function getOrCreateSheet(name, headers) {
 
 function sheetRows(sheet) {
   return sheet.getDataRange().getValues().slice(1);
+}
+
+function getSheetsRevision() {
+  const tables = [
+    ['Socios', ['ID','Nombre','Apellidos','Categoria','Sexo']],
+    ['Jornadas', ['ID','Fecha','Modalidad','Formato','Desde','PuntosSet','GanarPor2','Estado']],
+    ['Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']],
+    ['Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']],
+    ['Partidos', _hP()]
+  ];
+  const snapshot = tables.map(([name, headers]) =>
+    getOrCreateSheet(name, headers).getDataRange().getValues()
+  );
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    JSON.stringify(snapshot),
+    Utilities.Charset.UTF_8
+  );
+  return Utilities.base64EncodeWebSafe(digest);
 }
 
 // ─── SOCIOS (lectura) ────────────────────────────────────────────────
@@ -122,7 +155,11 @@ function getAllData() {
   const partidos = sheetRows(getOrCreateSheet('Partidos', _hP()))
     .filter(r => r[0]).map(r => {
       let sets = [];
-      try { sets = JSON.parse(r[12] || '[]'); } catch (err) { sets = []; }
+      try {
+        sets = JSON.parse(r[12] || '[]');
+      } catch (err) {
+        throw new Error('El resultado guardado del partido ' + String(r[0]) + ' no tiene un formato JSON válido.');
+      }
       return {
         id: String(r[0]), jornada: String(r[1]), fecha: formatSheetDate(r[2]),
         categoria: r[3], ronda: r[4], grupo: r[5] || '', orden: Number(r[6]) || 0,
@@ -134,7 +171,14 @@ function getAllData() {
       };
     });
 
-  return { socios: getSocios(), jornadas: getJornadas(), inscritos, competiciones, partidos };
+  return {
+    socios: getSocios(),
+    jornadas: getJornadas(),
+    inscritos,
+    competiciones,
+    partidos,
+    revision: getSheetsRevision()
+  };
 }
 
 function formatSheetDate(value) {
@@ -253,9 +297,103 @@ function borrarCompeticion(idJornada, categoria) {
   return true;
 }
 
+function validarResultado(partido, sets) {
+  if (!Array.isArray(sets) || sets.length < 1 || sets.length > 3)
+    throw new Error('Introduce entre uno y tres sets completos.');
+  if (!partido || !partido.idsA || !partido.idsA.length || !partido.idsB || !partido.idsB.length)
+    throw new Error('No se puede puntuar un enfrentamiento sin dos participantes.');
+
+  const jornada = getJornadas().find(j => String(j.id) === String(partido.jornada));
+  if (!jornada) throw new Error('No se encuentra la jornada del partido.');
+  const target = Number(jornada.puntosSet);
+  if (!Number.isInteger(target) || target < 1 || target > 50)
+    throw new Error('La jornada tiene una puntuación por set no válida.');
+
+  const winners = sets.map((set, index) => {
+    if (!Array.isArray(set) || set.length !== 2 ||
+        !set.every(score => Number.isInteger(score) && score >= 0 && score <= 50))
+      throw new Error('El set ' + (index + 1) + ' debe tener dos puntuaciones enteras entre 0 y 50.');
+    if (set[0] === set[1]) throw new Error('El set ' + (index + 1) + ' no puede terminar empatado.');
+    const winnerScore = Math.max(set[0], set[1]);
+    const loserScore = Math.min(set[0], set[1]);
+    if (jornada.ganarPor2) {
+      if (winnerScore < target || winnerScore - loserScore < 2)
+        throw new Error('El set ' + (index + 1) + ' debe alcanzar ' + target + ' puntos y ganarse por al menos dos.');
+    } else if (winnerScore !== target || loserScore >= target) {
+      throw new Error('El set ' + (index + 1) + ' debe terminar al llegar a ' + target + ' puntos.');
+    }
+    return set[0] > set[1] ? 'A' : 'B';
+  });
+
+  let format = jornada.formato;
+  if (format === 'MIXTO') {
+    const threshold = String(jornada.desde || '').trim().toLocaleLowerCase('es');
+    const roundStages = {
+      'Fase de grupos': 0,
+      Dieciseisavos: 1,
+      Octavos: 2,
+      Cuartos: 3,
+      Semifinal: 4,
+      Final: 5
+    };
+    let configuredStage = threshold.indexOf('eliminatoria') !== -1 ? 1 : undefined;
+    if (configuredStage === undefined) {
+      Object.keys(roundStages).some(round => {
+        if (threshold.indexOf(round.toLocaleLowerCase('es')) === -1) return false;
+        configuredStage = roundStages[round];
+        return true;
+      });
+    }
+    if (configuredStage === undefined)
+      throw new Error('Configura "Desde" con una ronda válida para aplicar el formato mixto.');
+    const matchStage = roundStages[partido.ronda];
+    if (matchStage === undefined)
+      throw new Error('No se puede determinar el formato para la ronda "' + partido.ronda + '".');
+    format = matchStage >= configuredStage ? 'TRES' : 'UNO';
+  }
+
+  if (format === 'UNO' && sets.length !== 1)
+    throw new Error('Este partido se juega a un solo set.');
+  if (format === 'TRES') {
+    if (sets.length < 2) throw new Error('Este partido requiere al menos dos sets.');
+    let winsA = 0;
+    let winsB = 0;
+    winners.forEach((winner, index) => {
+      if (winner === 'A') winsA++;
+      else winsB++;
+      if ((winsA === 2 || winsB === 2) && index !== winners.length - 1)
+        throw new Error('No se pueden registrar sets después de que un lado haya ganado dos.');
+    });
+    if (Math.max(winsA, winsB) !== 2)
+      throw new Error('El resultado debe decidirse al mejor de tres sets.');
+  } else if (format !== 'UNO') {
+    throw new Error('El formato de juego de la jornada no es válido.');
+  }
+
+  const winsA = winners.filter(winner => winner === 'A').length;
+  const winsB = winners.length - winsA;
+  return winsA > winsB ? 'A' : 'B';
+}
+
 function guardarResultado(idPartido, sets, ganador, partido) {
   const sheet = getOrCreateSheet('Partidos', _hP());
   const data = sheet.getDataRange().getValues();
+  const existing = data.slice(1).find(row => String(row[0]) === String(idPartido));
+  const matchForValidation = existing
+    ? {
+        id: String(existing[0]),
+        jornada: String(existing[1]),
+        ronda: existing[4],
+        idsA: String(existing[8] || '').split('|').filter(Boolean),
+        idsB: String(existing[10] || '').split('|').filter(Boolean)
+      }
+    : partido || null;
+  if (!matchForValidation || String(matchForValidation.id) !== String(idPartido))
+    throw new Error('No se recibió la información del partido para validar el resultado.');
+  const calculatedWinner = validarResultado(matchForValidation, sets);
+  if (String(ganador) !== calculatedWinner)
+    throw new Error('El ganador indicado no coincide con el marcador de los sets.');
+
   for (let i=1; i<data.length; i++) {
     if (String(data[i][0])===String(idPartido)) {
       sheet.getRange(i+1,8).setValue('Jugado');
@@ -291,38 +429,77 @@ function borrarResultado(idPartido) {
 
 // ─── SYNC COMPLETO ───────────────────────────────────────────────────
 
-function syncAll(data) {
-  if (!data) throw new Error('Sin datos para sincronizar.');
+function syncAll(data, expectedRevision) {
+  if (!data || !Array.isArray(data.jornadas) || !Array.isArray(data.partidos) ||
+      !data.inscritos || typeof data.inscritos !== 'object' ||
+      !data.competiciones || typeof data.competiciones !== 'object') {
+    throw new Error('El conjunto de datos para sincronizar no tiene un formato válido.');
+  }
+  const actualRevision = getSheetsRevision();
+  if (!expectedRevision || String(expectedRevision) !== actualRevision) {
+    throw new Error('Los datos de Google Sheets cambiaron desde la última carga. No se sobrescribieron; vuelve a cargar y revisar los cambios.');
+  }
 
-  const sJ = getOrCreateSheet('Jornadas', ['ID','Fecha','Modalidad','Formato','Desde','PuntosSet','GanarPor2','Estado']);
-  _clearRows(sJ);
-  (data.jornadas||[]).forEach(j => sJ.appendRow([
-    j.id, j.fecha, j.modalidad, j.formato, j.desde||'', j.puntosSet||15,
-    j.ganarPor2||false, j.definitiva?'Definitiva':'En Curso'
-  ]));
+  const jornadaRows = data.jornadas.map(j => [
+    j.id, j.fecha, j.modalidad, j.formato, j.desde || '', j.puntosSet || 15,
+    j.ganarPor2 || false, j.definitiva ? 'Definitiva' : 'En Curso'
+  ]);
+  const inscritoRows = [];
+  Object.entries(data.inscritos).forEach(([key, list]) => {
+    if (!Array.isArray(list)) throw new Error('La lista de inscritos contiene datos inválidos.');
+    const parts = key.split('_');
+    list.forEach(p => inscritoRows.push([
+      parts[0], parts.slice(1).join('_'), p.id, (p.ids || []).join('|'), (p.nombres || []).join(' / ')
+    ]));
+  });
+  const competicionRows = Object.entries(data.competiciones).map(([key, comp]) => {
+    const parts = key.split('_');
+    return [parts[0], parts.slice(1).join('_'), comp.sistema, comp.grupos || 0, comp.clasifican || 0];
+  });
+  const partidoRows = data.partidos.map(_partidoRow);
 
-  const sI = getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']);
-  _clearRows(sI);
-  Object.entries(data.inscritos||{}).forEach(([key, list]) => {
-    const parts = key.split('_'); const jornadaId = parts[0]; const categoria = parts.slice(1).join('_');
-    list.forEach(p => sI.appendRow([jornadaId, categoria, p.id, (p.ids||[]).join('|'), (p.nombres||[]).join(' / ')]));
+  const tables = [
+    [getOrCreateSheet('Jornadas', ['ID','Fecha','Modalidad','Formato','Desde','PuntosSet','GanarPor2','Estado']), 8, jornadaRows],
+    [getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']), 5, inscritoRows],
+    [getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']), 5, competicionRows],
+    [getOrCreateSheet('Partidos', _hP()), 14, partidoRows]
+  ];
+  const backups = tables.map(([sheet, width]) => {
+    const lastRow = sheet.getLastRow();
+    return lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, width).getValues();
   });
 
-  const sC = getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']);
-  _clearRows(sC);
-  Object.entries(data.competiciones||{}).forEach(([key, comp]) => {
-    const parts = key.split('_'); const jornadaId = parts[0]; const categoria = parts.slice(1).join('_');
-    sC.appendRow([jornadaId, categoria, comp.sistema, comp.grupos||0, comp.clasifican||0]);
-  });
+  try {
+    tables.forEach(([sheet, width, rows]) => replaceSheetRows(sheet, width, rows));
+  } catch (error) {
+    const rollbackErrors = [];
+    tables.forEach(([sheet, width], index) => {
+      try {
+        replaceSheetRows(sheet, width, backups[index]);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError.message || String(rollbackError));
+      }
+    });
+    if (rollbackErrors.length) {
+      throw new Error('Falló la sincronización y no se pudieron restaurar todas las hojas: ' + rollbackErrors.join(' | '));
+    }
+    throw new Error('Falló la sincronización; se restauraron los datos anteriores: ' + (error.message || error));
+  }
 
-  const sP = getOrCreateSheet('Partidos', _hP());
-  _clearRows(sP);
-  (data.partidos||[]).forEach(p => sP.appendRow(_partidoRow(p)));
-
-  return { jornadas: (data.jornadas||[]).length, partidos: (data.partidos||[]).length };
+  return {
+    jornadas: data.jornadas.length,
+    partidos: data.partidos.length,
+    revision: getSheetsRevision()
+  };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────
+
+function replaceSheetRows(sheet, width, rows) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, width).clearContent();
+  if (rows.length) sheet.getRange(2, 1, rows.length, width).setValues(rows);
+}
 
 function _clearRows(sheet) {
   const last = sheet.getLastRow();

@@ -11,6 +11,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   <Header />
 
   <main>
+    <div id="dataSyncNotice" role="status" aria-live="polite" class="glass-card" data-kind="loading" style="display:none; padding:10px 14px; margin-bottom:14px; font-size:13px;">
+      <div id="dataSyncNoticeText"></div>
+      <div id="dataConflictActions" class="flex-gap" style="display:none; margin-top:10px;">
+        <button type="button" class="btn btn-primary btn-sm" id="btnKeepLocalAndSync">Conservar y sincronizar datos locales</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btnDiscardLocalAndReload">Descartar cambios locales y cargar Sheets</button>
+      </div>
+    </div>
     <MatchVisualizer />
 
     <!-- ENVOLTORIO PROTEGIDO PARA ADMIN: GESTOR DE COMPETICIÓN -->
@@ -64,10 +71,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     initManager();
     initRankings();
     initGoogleSheets();
+    initDataSyncControls();
 
     // Initial Load & Admin state update
     updateAdminUI();
     loadJornadasVisualizer();
+    void loadInitialRemoteData();
   });
 
   // --- Admin Mode Logic ---
@@ -136,6 +145,97 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     renderManagerCategoryDetails();
     renderCategoryVisuals();
     if (typeof renderRankingsTable === "function") renderRankingsTable();
+    renderDataSyncNotice();
+  }
+
+  function renderDataSyncNotice(message, kind = "") {
+    const notice = document.getElementById("dataSyncNotice");
+    if (!notice) return;
+    const text = document.getElementById("dataSyncNoticeText");
+    const actions = document.getElementById("dataConflictActions");
+    if (message !== undefined) {
+      if (text) text.textContent = message;
+      notice.dataset.kind = kind;
+      notice.style.color = kind === "error" ? "#f87171"
+        : kind === "warning" ? "#fbbf24"
+          : kind === "success" ? "var(--accent-green)"
+            : "var(--text-muted)";
+      notice.style.display = message ? "block" : "none";
+      if (actions) actions.style.display = engine.localChangesPending ? "flex" : "none";
+      return;
+    }
+
+    if (engine.lastSyncStatus === "local-only" || engine.localChangesPending) {
+      const message = engine.lastRemoteError
+        ? `Hay cambios guardados localmente que no se han confirmado en Google Sheets: ${engine.lastRemoteError}`
+        : "Hay cambios guardados localmente pendientes de sincronizar con Google Sheets.";
+      renderDataSyncNotice(message, "warning");
+    } else if (engine.lastSyncStatus === "remote-error") {
+      const message = engine.lastRemoteError
+        ? `No se pudo confirmar el estado de Google Sheets: ${engine.lastRemoteError}`
+        : "No se pudo confirmar el estado de Google Sheets.";
+      renderDataSyncNotice(message, "error");
+    } else {
+      notice.style.display = "none";
+      if (actions) actions.style.display = "none";
+    }
+  }
+
+  async function loadInitialRemoteData() {
+    renderDataSyncNotice("Cargando los datos más recientes de Google Sheets…", "loading");
+    try {
+      await engine.fetchAllFromSheets();
+      loadJornadasVisualizer();
+      if (engine.isAdminSession()) loadJornadasManager();
+      renderCategoryVisuals();
+      renderRankingsTable();
+      if (engine.localChangesPending) renderDataSyncNotice();
+      else renderDataSyncNotice("Datos actualizados desde Google Sheets.", "success");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      renderDataSyncNotice(
+        `No se pudieron actualizar los datos remotos. Se mantiene la copia local. ${detail}`,
+        "warning",
+      );
+    }
+  }
+
+  function confirmRemoteOverwrite() {
+    if (!engine.remoteConflictRevision) return true;
+    return confirm(
+      "Google Sheets cambió desde la última carga. ¿Quieres reemplazar esos datos con la copia local? Esta acción no se puede deshacer.",
+    );
+  }
+
+  function initDataSyncControls() {
+    document.getElementById("btnKeepLocalAndSync")?.addEventListener("click", async () => {
+      const confirmedOverwrite = Boolean(engine.remoteConflictRevision);
+      if (!confirmRemoteOverwrite()) return;
+      try {
+        await engine.syncAllToSheets(undefined, { confirmedOverwrite });
+        refreshCompetitionState();
+        renderDataSyncNotice("Cambios locales sincronizados con Google Sheets.", "success");
+      } catch (error) {
+        renderDataSyncNotice(
+          error instanceof Error ? error.message : String(error),
+          "error",
+        );
+      }
+    });
+
+    document.getElementById("btnDiscardLocalAndReload")?.addEventListener("click", async () => {
+      if (!confirm("¿Descartar todos los cambios locales pendientes y reemplazarlos por los datos de Google Sheets?")) return;
+      try {
+        await engine.fetchAllFromSheets({ discardLocal: true });
+        refreshCompetitionState();
+        renderDataSyncNotice("Se descartó la copia local y se cargaron los datos de Google Sheets.", "success");
+      } catch (error) {
+        renderDataSyncNotice(
+          error instanceof Error ? error.message : String(error),
+          "error",
+        );
+      }
+    });
   }
 
   function updateAdminUI() {
@@ -503,7 +603,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       return;
     }
 
-    let html = "";
+    const pendingGroupMatches = detail.partidos.filter((match) =>
+      match.ronda === "Fase de grupos" && match.estado !== "Jugado",
+    ).length;
+    let html = pendingGroupMatches
+      ? `<div class="badge badge-borrador" style="margin-bottom:12px; white-space:normal;">Clasificación provisional · ${pendingGroupMatches} partido(s) de grupo pendiente(s).</div>`
+      : "";
+    html += '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Desempates: victorias, diferencia de sets, diferencia de puntos y nombre.</p>';
     groupKeys.forEach((gName) => {
       const rows = clas[gName];
       html += `
@@ -777,6 +883,16 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const s3A = document.getElementById("set3A").value;
     const s3B = document.getElementById("set3B").value;
 
+    const scoreFields = [[s1A, s1B], [s2A, s2B], [s3A, s3B]];
+    const incompleteSet = scoreFields.find(([scoreA, scoreB]) =>
+      (scoreA === "") !== (scoreB === ""),
+    );
+    if (incompleteSet) {
+      document.getElementById("scoreModalError").textContent =
+        "Completa las dos puntuaciones de cada set que hayas empezado.";
+      return;
+    }
+
     const sets = [];
     if (s1A !== "" && s1B !== "") sets.push([Number(s1A), Number(s1B)]);
     if (s2A !== "" && s2B !== "") sets.push([Number(s2A), Number(s2B)]);
@@ -1025,7 +1141,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       if (btn) btn.classList.add("loading");
       if (msg) { msg.style.color = "var(--text-muted)"; msg.textContent = "Guardando en Google Sheets…"; }
       try {
-        const res = await engine.syncAllToSheets();
+        if (!confirmRemoteOverwrite()) {
+          if (msg) msg.textContent = "Sincronización cancelada; no se modificó Google Sheets.";
+          return;
+        }
+        const res = await engine.syncAllToSheets(undefined, {
+          confirmedOverwrite: Boolean(engine.remoteConflictRevision),
+        });
         if (res) {
           if (msg) {
             msg.style.color = "var(--accent-green)";
@@ -1041,6 +1163,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
         if (btn) btn.classList.remove("loading");
+        renderDataSyncNotice();
       }
     });
 
@@ -1063,7 +1186,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       if (btn) { btn.disabled = true; btn.textContent = "⏳ Sincronizando…"; }
       if (msg) { msg.style.display = "block"; msg.style.color = "var(--text-muted)"; msg.textContent = "Volcando datos a Google Sheets…"; }
       try {
-        const res = await engine.syncAllToSheets();
+        if (!confirmRemoteOverwrite()) {
+          if (msg) msg.textContent = "Sincronización cancelada; no se modificó Google Sheets.";
+          return;
+        }
+        const res = await engine.syncAllToSheets(undefined, {
+          confirmedOverwrite: Boolean(engine.remoteConflictRevision),
+        });
         if (res && msg) {
           msg.style.color = "var(--accent-green)";
           msg.textContent = res.verified
@@ -1077,6 +1206,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = "☁️ Sincronizar Todo con Sheets"; }
+        renderDataSyncNotice();
       }
     });
 
@@ -1248,15 +1378,15 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
 
     try {
-      await engine.crearCompeticion(mgrJornadaId, mgrCategory, cfg);
+      const remoteResult = await engine.crearCompeticion(mgrJornadaId, mgrCategory, cfg);
       refreshCompetitionState();
       const msg = document.getElementById("compSheetsMsg");
       if (msg) {
-        const remoteConfigured = Boolean(engine.getWebAppUrl());
-        msg.style.color = remoteConfigured ? "var(--accent-green)" : "#fbbf24";
-        msg.textContent = remoteConfigured
+        const isSynced = Boolean(remoteResult) && engine.lastSyncStatus === "synced";
+        msg.style.color = isSynced ? "var(--accent-green)" : "#fbbf24";
+        msg.textContent = isSynced
           ? "✅ Competición y partidos guardados en Sheets."
-          : "⚠️ Competición creada en modo local; no se ha enviado a Sheets.";
+          : `⚠️ Competición creada localmente; Sheets no confirmó el guardado.${engine.lastRemoteError ? ` ${engine.lastRemoteError}` : ""}`;
       }
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
@@ -2003,6 +2133,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       ?.addEventListener("click", async () => {
         const url = inputUrl.value.trim();
         const pin = inputPin.value.trim();
+        const discardLocal = engine.localChangesPending && Boolean(url);
+        if (discardLocal && !confirm(
+          "Hay cambios locales pendientes. Al conectar se reemplazará la copia local con los datos remotos. ¿Continuar?",
+        )) return;
         engine.setWebAppUrl(url);
         engine.setAdminPin(pin);
 
@@ -2020,7 +2154,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         }
 
         try {
-          await engine.fetchAllFromSheets();
+          await engine.fetchAllFromSheets({ discardLocal });
           if (statusBadge) {
             statusBadge.className = "badge badge-definitiva";
             statusBadge.textContent = "Conectado a Google Sheets";
@@ -2029,6 +2163,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           loadJornadasManager();
           loadJornadasVisualizer();
           renderRankingsTable();
+          renderDataSyncNotice("Datos cargados desde Google Sheets.", "success");
           alert("¡Conexión con Google Sheets verificada correctamente!");
         } catch (e) {
           if (statusBadge) {
@@ -2045,13 +2180,20 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const msg = document.getElementById("syncResultMsg");
         if (msg) msg.textContent = "Guardando todos los datos en Google Sheets...";
         try {
-          const res = await engine.syncAllToSheets();
+          if (!confirmRemoteOverwrite()) {
+            if (msg) msg.textContent = "Sincronización cancelada; no se modificó Google Sheets.";
+            return;
+          }
+          const res = await engine.syncAllToSheets(undefined, {
+            confirmedOverwrite: Boolean(engine.remoteConflictRevision),
+          });
           if (!res) throw new Error("Configura una conexión válida antes de sincronizar.");
           if (msg) msg.textContent = res.verified
             ? `Guardado y verificado: ${res.jornadas} jornada(s), ${res.partidos} partido(s).`
             : `Guardado completado: ${res.jornadas} jornada(s), ${res.partidos} partido(s).`;
           loadJornadasManager();
           loadJornadasVisualizer();
+          renderDataSyncNotice();
         } catch (error) {
           if (msg) msg.textContent = `No se pudo guardar en Sheets: ${error instanceof Error ? error.message : String(error)}`;
         }
