@@ -945,6 +945,72 @@ class BadmintonEngine {
     return true;
   }
 
+  async actualizarParticipantesPartido(idPartido, participanteAId, participanteBId) {
+    const match = this.partidos.find(partido => partido.id === idPartido);
+    if (!match) throw new Error('No se encuentra el partido.');
+
+    const inscritos = this.inscritos[`${match.jornada}_${match.categoria}`] || [];
+    const findParticipant = id => inscritos.find(participant => participant.id === id);
+    const participantA = participanteAId ? findParticipant(participanteAId) : null;
+    const participantB = participanteBId ? findParticipant(participanteBId) : null;
+
+    if ((participanteAId && !participantA) || (participanteBId && !participantB)) {
+      throw new Error('Selecciona participantes inscritos en esta categoría.');
+    }
+    if (!participantA && !participantB) {
+      throw new Error('El enfrentamiento debe tener al menos un jugador o pareja.');
+    }
+    if (participanteAId && participanteAId === participanteBId) {
+      throw new Error('El mismo jugador o pareja no puede ocupar ambos lados del enfrentamiento.');
+    }
+
+    const idsA = participantA?.ids || [];
+    const idsB = participantB?.ids || [];
+    if (
+      JSON.stringify(match.idsA || []) === JSON.stringify(idsA) &&
+      JSON.stringify(match.idsB || []) === JSON.stringify(idsB)
+    ) return false;
+
+    const updatedMatch = {
+      ...match,
+      idsA: [...idsA],
+      nomA: [...(participantA?.nombres || [])],
+      idsB: [...idsB],
+      nomB: [...(participantB?.nombres || [])],
+      sets: [],
+      estado: participantA && participantB ? 'Pendiente' : 'Bye',
+      ganador: participantA ? 'A' : 'B',
+      registrado: ''
+    };
+    if (participantA && participantB) updatedMatch.ganador = '';
+
+    const updatedMatches = this.partidos.map(partido =>
+      partido.id === idPartido ? updatedMatch : partido
+    );
+    if (match.ronda !== 'Fase de grupos') {
+      const laterRounds = new Set();
+      let round = match.ronda;
+      while (this.nextKnockoutRound(round)) {
+        round = this.nextKnockoutRound(round);
+        laterRounds.add(round);
+      }
+      const retainedMatches = updatedMatches.filter(partido =>
+        !(partido.jornada === match.jornada && partido.categoria === match.categoria &&
+          laterRounds.has(partido.ronda))
+      );
+      await this.syncAllToSheets({ ...this.getStateSnapshot(), partidos: retainedMatches });
+      this.partidos = retainedMatches;
+      this.saveState();
+      await this.advanceKnockoutBracket(match.jornada, match.categoria, match.ronda);
+      return true;
+    }
+
+    await this.persistBracketMatches([updatedMatch], updatedMatches);
+    this.partidos = updatedMatches;
+    this.saveState();
+    return true;
+  }
+
   // --- Rankings ---
   async fetchRanking() {
     const remote = await this.callRemote('getRanking');

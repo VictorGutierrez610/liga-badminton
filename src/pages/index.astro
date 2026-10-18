@@ -40,6 +40,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   let matchFilterState = "all";
 
   let selectedScoreMatch = null;
+  let selectedParticipantsMatchId = null;
 
   let mgrJornadaId = "";
   let mgrCategory = "";
@@ -710,6 +711,61 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     selectedScoreMatch = null;
   }
 
+  function openMatchParticipantsModal(matchId) {
+    if (!engine.isAdminSession()) {
+      if (confirm("Debes estar en Modo Administrador para editar los participantes.\n\n¿Deseas introducir tu código PIN de administración ahora?")) {
+        openAdminModal();
+      }
+      return;
+    }
+
+    const match = engine.partidos.find((item) => item.id === matchId);
+    if (!match) return;
+    selectedParticipantsMatchId = matchId;
+    const participants = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).participantes;
+    const optionHtml = participants.map((participant) =>
+      `<option value="${escapeHtml(participant.id)}">${escapeHtml(participant.nombres.join(" / "))}</option>`,
+    ).join("");
+    const emptyOption = '<option value="">— Sin participante (bye) —</option>';
+    const selectA = document.getElementById("matchParticipantA");
+    const selectB = document.getElementById("matchParticipantB");
+    selectA.innerHTML = `${emptyOption}${optionHtml}`;
+    selectB.innerHTML = `${emptyOption}${optionHtml}`;
+    const participantId = (ids) => participants.find((participant) =>
+      JSON.stringify(participant.ids) === JSON.stringify(ids || []),
+    )?.id || "";
+    selectA.value = participantId(match.idsA);
+    selectB.value = participantId(match.idsB);
+    document.getElementById("matchParticipantsInfo").textContent =
+      `${formatShortDate(match.fecha)} · ${match.categoria} · ${match.ronda}${match.grupo ? ` · Grupo ${match.grupo}` : ""} · Partido ${match.orden}`;
+    document.getElementById("matchParticipantsError").textContent = "";
+    document.getElementById("matchParticipantsModal").style.display = "flex";
+  }
+
+  function closeMatchParticipantsModal() {
+    document.getElementById("matchParticipantsModal").style.display = "none";
+    selectedParticipantsMatchId = null;
+  }
+
+  async function saveMatchParticipants(event) {
+    event.preventDefault();
+    if (!selectedParticipantsMatchId) return;
+    const participantAId = document.getElementById("matchParticipantA").value;
+    const participantBId = document.getElementById("matchParticipantB").value;
+    try {
+      await engine.actualizarParticipantesPartido(
+        selectedParticipantsMatchId,
+        participantAId,
+        participantBId,
+      );
+      closeMatchParticipantsModal();
+      refreshCompetitionState();
+    } catch (error) {
+      document.getElementById("matchParticipantsError").textContent =
+        error instanceof Error ? error.message : String(error);
+    }
+  }
+
   async function saveScoreModal(e) {
     e.preventDefault();
     if (!selectedScoreMatch) return;
@@ -756,6 +812,15 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   // --- Manager Logic ---
   function initManager() {
+    document
+      .getElementById("btnCloseMatchParticipantsModal")
+      ?.addEventListener("click", closeMatchParticipantsModal);
+    document
+      .getElementById("btnCancelMatchParticipants")
+      ?.addEventListener("click", closeMatchParticipantsModal);
+    document
+      .getElementById("matchParticipantsForm")
+      ?.addEventListener("submit", saveMatchParticipants);
     document
       .getElementById("btnCloseScoreModal")
       ?.addEventListener("click", closeScoreModal);
@@ -1608,7 +1673,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         <td>${escapeHtml(teamB)}<small class="text-muted" style="display:block;">${escapeHtml(idsB)}</small></td>
         <td>${escapeHtml(score)}</td>
         <td>${escapeHtml(winner)}</td>
-        <td>${canEnterScore ? `<button class="btn btn-secondary btn-sm open-score-btn" data-match-id="${escapeHtml(match.id)}">${match.estado === "Jugado" ? "Editar ✏️" : "Anotar ✏️"}</button>` : "—"}</td>
+        <td><div class="flex-gap" style="justify-content:flex-end; flex-wrap:nowrap;">
+          ${canEnterScore ? `<button class="btn btn-secondary btn-sm open-score-btn" data-match-id="${escapeHtml(match.id)}">${match.estado === "Jugado" ? "Editar ✏️" : "Anotar ✏️"}</button>` : ""}
+          <button class="btn btn-secondary btn-sm edit-match-participants-btn" data-match-id="${escapeHtml(match.id)}" title="Cambiar jugadores o pareja de este enfrentamiento">Participantes 👥</button>
+        </div></td>
       </tr>`;
     }).join("");
 
@@ -1620,6 +1688,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     container.querySelectorAll(".open-score-btn").forEach((button) => {
       button.addEventListener("click", () => {
         openScoreModal(button.getAttribute("data-match-id"));
+      });
+    });
+    container.querySelectorAll(".edit-match-participants-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        openMatchParticipantsModal(button.getAttribute("data-match-id"));
       });
     });
   }

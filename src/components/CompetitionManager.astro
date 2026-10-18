@@ -221,6 +221,37 @@
   </div>
 </div>
 
+<!-- Modal para corregir participantes de un enfrentamiento -->
+<div id="matchParticipantsModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 class="modal-title">Editar participantes del enfrentamiento</h3>
+      <button class="modal-close" id="btnCloseMatchParticipantsModal">✕</button>
+    </div>
+    <p id="matchParticipantsInfo" class="text-muted" style="font-size:13px; margin-bottom:14px;"></p>
+    <form id="matchParticipantsForm">
+      <div class="grid-cols-2" style="gap:12px; margin-bottom:16px;">
+        <div class="form-group">
+          <label class="form-label" for="matchParticipantA">Jugador / pareja A</label>
+          <select id="matchParticipantA" class="form-select" required></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="matchParticipantB">Jugador / pareja B</label>
+          <select id="matchParticipantB" class="form-select" required></select>
+        </div>
+      </div>
+      <p class="text-muted" style="font-size:12px; margin-bottom:12px;">
+        Al cambiar los participantes se borra el marcador de este partido. En eliminatorias también se recalculan las rondas posteriores.
+      </p>
+      <div id="matchParticipantsError" class="text-red text-center" style="font-size:13px; min-height:20px; margin-bottom:12px;"></div>
+      <div class="flex-gap" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="btnCancelMatchParticipants">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="btnSaveMatchParticipants">Guardar participantes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Modal de resultados: la edición solo está disponible desde el Gestor -->
 <div id="scoreEntryModal" class="modal-overlay" style="display:none;">
   <div class="modal-content">
