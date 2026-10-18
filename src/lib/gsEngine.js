@@ -412,7 +412,7 @@ class BadmintonEngine {
     } else if (cfg.sistema === 'ELIM') {
       const seeds = cfg.metodoCruces === 'MANUAL'
         ? (cfg.cruces || []).flat()
-        : this.shuffle(insc.map(x => x.id));
+        : this.distributeKnockoutByes(this.shuffle(insc.map(x => x.id)));
       const matches = this.generateKnockout(j, categoria, seeds, insc);
       newMatches.push(...matches);
       competitionConfig = {
@@ -428,12 +428,15 @@ class BadmintonEngine {
     this.competiciones[key] = competitionConfig;
     this.partidos.push(...newMatches);
     this.saveState();
-    void this.callRemote('crearCompeticion', {
+    await this.callRemote('crearCompeticion', {
       idJornada,
       categoria,
       cfg: competitionConfig,
       partidos: newMatches
-    }, { strict: false }).catch(() => {});
+    }, { strict: false });
+    if (competitionConfig.sistema === 'ELIM' && newMatches.length) {
+      await this.advanceKnockoutBracket(idJornada, categoria, newMatches[0].ronda);
+    }
 
     return true;
   }
@@ -572,6 +575,15 @@ class BadmintonEngine {
     return shuffled;
   }
 
+  distributeKnockoutByes(seeds) {
+    const size = Math.pow(2, Math.ceil(Math.log2(Math.max(seeds.length, 2))));
+    const byeCount = size - seeds.length;
+    const arranged = [];
+    seeds.slice(0, byeCount).forEach(seed => arranged.push(seed, ''));
+    arranged.push(...seeds.slice(byeCount));
+    return arranged;
+  }
+
   generateKnockout(jornada, categoria, seeds, inscritos, expectedParticipantIds = inscritos.map(x => x.id)) {
     const map = {};
     inscritos.forEach(i => { map[i.id] = i; });
@@ -596,6 +608,7 @@ class BadmintonEngine {
       const pA = sA ? map[sA] : null;
       const pB = sB ? map[sB] : null;
 
+      if (!sA && !sB) continue;
       const isBye = !sA || !sB;
       const winner = !sA ? 'B' : (!sB ? 'A' : '');
 
@@ -619,6 +632,121 @@ class BadmintonEngine {
     }
 
     return matches;
+  }
+
+  nextKnockoutRound(ronda) {
+    return {
+      Dieciseisavos: 'Octavos',
+      Octavos: 'Cuartos',
+      Cuartos: 'Semifinal',
+      Semifinal: 'Final'
+    }[ronda] || '';
+  }
+
+  createNextKnockoutRound(sourceMatches, jornada, categoria, ronda) {
+    const nextRound = this.nextKnockoutRound(ronda);
+    if (!nextRound) return [];
+
+    const matchesPerRound = {
+      Dieciseisavos: 16,
+      Octavos: 8,
+      Cuartos: 4,
+      Semifinal: 2
+    };
+    const sourceCount = matchesPerRound[ronda];
+    if (!sourceCount) return [];
+
+    const winnersByOrder = new Map(sourceMatches.map(match => {
+      const ids = match.ganador === 'A' ? match.idsA : match.ganador === 'B' ? match.idsB : [];
+      const nombres = match.ganador === 'A' ? match.nomA : match.ganador === 'B' ? match.nomB : [];
+      return [match.orden, ids?.length ? { ids: [...ids], nombres: [...(nombres || [])] } : null];
+    }));
+    const nextMatches = [];
+
+    for (let index = 0; index < sourceCount / 2; index++) {
+      const participantA = winnersByOrder.get(index * 2 + 1) || null;
+      const participantB = winnersByOrder.get(index * 2 + 2) || null;
+      if (!participantA && !participantB) continue;
+
+      const isBye = !participantA || !participantB;
+      nextMatches.push({
+        id: `PG_${Date.now()}_${index + 1}_${Math.random().toString(36).slice(2, 7)}`,
+        jornada: jornada.id,
+        fecha: jornada.fecha,
+        categoria,
+        ronda: nextRound,
+        grupo: '',
+        orden: index + 1,
+        estado: isBye ? 'Bye' : 'Pendiente',
+        idsA: participantA?.ids || [],
+        idsB: participantB?.ids || [],
+        nomA: participantA?.nombres || [],
+        nomB: participantB?.nombres || [],
+        sets: [],
+        ganador: isBye ? (participantA ? 'A' : 'B') : '',
+        registrado: ''
+      });
+    }
+
+    return nextMatches;
+  }
+
+  async persistBracketMatches(matches, updatedMatches) {
+    try {
+      return await this.callRemote('guardarPartidos', { partidos: matches }, { strict: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/acci[oó]n no v[aá]lida|guardarPartidos/i.test(message)) throw error;
+      return this.syncAllToSheets({ ...this.getStateSnapshot(), partidos: updatedMatches });
+    }
+  }
+
+  async advanceKnockoutBracket(idJornada, categoria, initialRound) {
+    let sourceRound = initialRound;
+    while (this.nextKnockoutRound(sourceRound)) {
+      const sourceMatches = this.partidos
+        .filter(match => match.jornada === idJornada && match.categoria === categoria && match.ronda === sourceRound)
+        .sort((a, b) => a.orden - b.orden);
+      if (!sourceMatches.length || sourceMatches.some(match => match.estado !== 'Jugado' && match.estado !== 'Bye')) return;
+
+      const nextRound = this.nextKnockoutRound(sourceRound);
+      const jornada = this.jornadas.find(item => item.id === idJornada);
+      if (!jornada) throw new Error('No se encuentra la jornada para generar la siguiente ronda.');
+
+      const generatedMatches = this.createNextKnockoutRound(sourceMatches, jornada, categoria, sourceRound);
+      if (!generatedMatches.length) return;
+
+      const existingMatches = this.partidos.filter(match =>
+        match.jornada === idJornada && match.categoria === categoria && match.ronda === nextRound
+      );
+      const existingByOrder = new Map(existingMatches.map(match => [match.orden, match]));
+      const matchesToSave = [];
+      const reconciledMatches = generatedMatches.map(generated => {
+        const existing = existingByOrder.get(generated.orden);
+        const sameParticipants = existing &&
+          JSON.stringify(existing.idsA || []) === JSON.stringify(generated.idsA) &&
+          JSON.stringify(existing.idsB || []) === JSON.stringify(generated.idsB);
+        if (sameParticipants) return existing;
+        matchesToSave.push(generated);
+        return generated;
+      });
+      const reconciledOrders = new Set(reconciledMatches.map(match => match.orden));
+      const updatedMatches = this.partidos.filter(match =>
+        !(match.jornada === idJornada && match.categoria === categoria &&
+          match.ronda === nextRound && !reconciledOrders.has(match.orden))
+      );
+      const updatedById = new Set(updatedMatches.map(match => match.id));
+      updatedMatches.push(...reconciledMatches.filter(match => !updatedById.has(match.id)));
+
+      if (matchesToSave.length) {
+        await this.persistBracketMatches(matchesToSave, updatedMatches);
+      }
+      this.partidos = updatedMatches;
+      this.saveState();
+
+      if (reconciledMatches.some(match => match.estado === 'Pendiente')) return;
+      sourceRound = nextRound;
+    }
   }
 
   async generarCuadroEliminatorio(idJornada, categoria, cfg = {}) {
@@ -660,7 +788,7 @@ class BadmintonEngine {
       const idBySlot = new Map(qualified.map(entry => [`${entry.grupo}:${entry.posicion}`, entry.id]));
       seeds = (cfg.cruces || []).flat().map(slot => slot ? idBySlot.get(slot) : '');
     } else {
-      seeds = this.shuffle(qualified.map(entry => entry.id));
+      seeds = this.distributeKnockoutByes(this.shuffle(qualified.map(entry => entry.id)));
     }
     const bracketMatches = this.generateKnockout(
       j,
@@ -675,21 +803,11 @@ class BadmintonEngine {
     const updatedMatches = this.partidos.filter(p => !(p.jornada === idJornada && p.categoria === categoria && p.ronda !== 'Fase de grupos'));
     updatedMatches.push(...bracketMatches);
 
-    let remoteResult;
-    try {
-      remoteResult = await this.callRemote(
-        'guardarPartidos',
-        { partidos: bracketMatches },
-        { strict: true }
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!/acci[oó]n no v[aá]lida|guardarPartidos/i.test(message)) throw error;
-      remoteResult = await this.syncAllToSheets({ ...this.getStateSnapshot(), partidos: updatedMatches });
-    }
+    const remoteResult = await this.persistBracketMatches(bracketMatches, updatedMatches);
 
     this.partidos = updatedMatches;
     this.saveState();
+    await this.advanceKnockoutBracket(idJornada, categoria, bracketMatches[0]?.ronda);
 
     return { partidos: bracketMatches, sincronizacion: remoteResult };
   }
@@ -811,6 +929,7 @@ class BadmintonEngine {
 
     Object.assign(p, updatedMatch);
     this.saveState();
+    await this.advanceKnockoutBracket(p.jornada, p.categoria, p.ronda);
     return true;
   }
 

@@ -426,7 +426,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       "Semifinal",
       "Final",
     ];
-    const presentRounds = roundOrder.filter((r) => roundsMap[r]);
+    const presentRounds = roundOrder.filter((r) =>
+      roundsMap[r]?.some((match) => match.estado !== "Bye"),
+    );
 
     let html = "";
     presentRounds.forEach((rName) => {
