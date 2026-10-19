@@ -17,10 +17,6 @@
         <span id="connectionStatusText">Modo Local (Demostración)</span>
       </div>
 
-      <button type="button" class="btn btn-secondary btn-sm" id="btnToggleTheme" aria-pressed="false">
-        ☀️ Tema claro
-      </button>
-      
       <div id="adminStatusBox" class="admin-status-box">
         <span id="adminStatusBadge" class="badge badge-borrador">👁️ Modo Espectador</span>
         <button id="btnOpenAdminModal" class="btn btn-primary btn-sm">
@@ -30,6 +26,10 @@
           🚪 Salir Modo Admin
         </button>
       </div>
+
+      <button type="button" class="btn btn-secondary btn-sm theme-toggle" id="btnToggleTheme" aria-label="Cambiar a tema claro" title="Cambiar a tema claro" aria-pressed="false">
+        ☀
+      </button>
     </div>
   </div>
 
@@ -145,6 +145,14 @@
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+  }
+
+  .theme-toggle {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    font-size: 20px;
+    line-height: 1;
   }
 
   .status-indicator {

@@ -36,8 +36,8 @@
   --bg-gradient: radial-gradient(circle at 50% 0%, #ffffff 0%, #f4efff 55%, #ece5fb 100%);
   --card-bg: rgba(255, 255, 255, 0.82);
   --card-bg-hover: rgba(139, 92, 246, 0.08);
-  --card-border: rgba(109, 40, 217, 0.18);
-  --card-border-active: rgba(109, 40, 217, 0.45);
+  --card-border: rgba(91, 33, 182, 0.32);
+  --card-border-active: rgba(91, 33, 182, 0.58);
 
   --primary: #7c3aed;
   --primary-hover: #6d28d9;
@@ -610,15 +610,38 @@ body {
 
 :root[data-theme="light"] .glass-card {
   box-shadow: 0 8px 28px rgba(59, 36, 93, 0.09);
+  border-color: var(--card-border);
+}
+
+:root[data-theme="light"] .glass-card:hover {
+  border-color: var(--card-border-active);
+}
+
+:root[data-theme="light"] .btn {
+  border: 1px solid rgba(91, 33, 182, 0.38);
+}
+
+:root[data-theme="light"] .btn-primary {
+  border-color: #6d28d9;
+}
+
+:root[data-theme="light"] .btn-secondary {
+  border-color: rgba(91, 33, 182, 0.48);
+}
+
+:root[data-theme="light"] .nav-tab {
+  border-color: rgba(91, 33, 182, 0.2);
 }
 
 :root[data-theme="light"] .status-indicator {
   background: rgba(255, 255, 255, 0.7);
+  border-color: var(--card-border);
 }
 
 :root[data-theme="light"] .form-control,
 :root[data-theme="light"] .form-select {
   background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(91, 33, 182, 0.4);
 }
 
 :root[data-theme="light"] .bracket-match {
@@ -646,7 +669,13 @@ body {
 
 :root[data-theme="light"] .modal-content {
   background: #fcfaff;
+  border-color: rgba(91, 33, 182, 0.42);
   box-shadow: 0 20px 50px rgba(59, 36, 93, 0.2);
+}
+
+:root[data-theme="light"] .table-container,
+:root[data-theme="light"] .bracket-match {
+  border-color: rgba(91, 33, 182, 0.32);
 }
 
 :root[data-theme="light"] .code-block {

@@ -338,8 +338,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       const isLight = theme === "light";
       root.dataset.theme = isLight ? "light" : "dark";
       if (themeButton) {
-        themeButton.textContent = isLight ? "🌙 Tema oscuro" : "☀️ Tema claro";
-        themeButton.setAttribute("aria-label", `Cambiar a tema ${isLight ? "oscuro" : "claro"}`);
+        const nextThemeLabel = isLight ? "oscuro" : "claro";
+        themeButton.textContent = isLight ? "☾" : "☀";
+        themeButton.setAttribute("aria-label", `Cambiar a tema ${nextThemeLabel}`);
+        themeButton.setAttribute("title", `Cambiar a tema ${nextThemeLabel}`);
         themeButton.setAttribute("aria-pressed", String(isLight));
       }
     }
