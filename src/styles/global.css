@@ -30,6 +30,26 @@
   --shadow-glow: 0 0 25px rgba(139, 92, 246, 0.2);
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-dark: #f6f2ff;
+  --bg-gradient: radial-gradient(circle at 50% 0%, #ffffff 0%, #f4efff 55%, #ece5fb 100%);
+  --card-bg: rgba(255, 255, 255, 0.82);
+  --card-bg-hover: rgba(139, 92, 246, 0.08);
+  --card-border: rgba(109, 40, 217, 0.18);
+  --card-border-active: rgba(109, 40, 217, 0.45);
+
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-light: #6d28d9;
+  --primary-glow: rgba(124, 58, 237, 0.2);
+
+  --text-main: #26183b;
+  --text-muted: #655779;
+  --text-dim: #827492;
+  --shadow-glow: 0 0 25px rgba(124, 58, 237, 0.12);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -586,6 +606,56 @@ body {
   color: var(--primary-light);
   overflow-x: auto;
   white-space: pre-wrap;
+}
+
+:root[data-theme="light"] .glass-card {
+  box-shadow: 0 8px 28px rgba(59, 36, 93, 0.09);
+}
+
+:root[data-theme="light"] .status-indicator {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+:root[data-theme="light"] .form-control,
+:root[data-theme="light"] .form-select {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+:root[data-theme="light"] .bracket-match {
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 15px rgba(59, 36, 93, 0.1);
+}
+
+:root[data-theme="light"] .bracket-action-bar {
+  background: rgba(109, 40, 217, 0.06);
+}
+
+:root[data-theme="light"] .custom-table th {
+  background: #eee7fb;
+}
+
+:root[data-theme="light"] .custom-table td,
+:root[data-theme="light"] .custom-table tr:nth-child(even) td {
+  background: rgba(249, 246, 255, 0.9);
+  border-bottom-color: rgba(109, 40, 217, 0.1);
+}
+
+:root[data-theme="light"] .modal-overlay {
+  background: rgba(45, 29, 68, 0.35);
+}
+
+:root[data-theme="light"] .modal-content {
+  background: #fcfaff;
+  box-shadow: 0 20px 50px rgba(59, 36, 93, 0.2);
+}
+
+:root[data-theme="light"] .code-block {
+  background: #f0eafa;
+}
+
+:root[data-theme="light"] .glass-card[style*="rgba(0,0,0"],
+:root[data-theme="light"] .glass-card[style*="rgba(0, 0, 0"] {
+  background: rgba(255, 255, 255, 0.72) !important;
 }
 
 @media (max-width: 900px) {

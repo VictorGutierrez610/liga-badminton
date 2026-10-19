@@ -16,6 +16,10 @@
         <span class="status-dot"></span>
         <span id="connectionStatusText">Modo Local (Demostración)</span>
       </div>
+
+      <button type="button" class="btn btn-secondary btn-sm" id="btnToggleTheme" aria-pressed="false">
+        ☀️ Tema claro
+      </button>
       
       <div id="adminStatusBox" class="admin-status-box">
         <span id="adminStatusBadge" class="badge badge-borrador">👁️ Modo Espectador</span>
@@ -115,6 +119,12 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.5px;
+  }
+
+  :global(html[data-theme="light"]) .brand-title {
+    background: linear-gradient(135deg, #5b21b6 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
   }
 
   .brand-sub {

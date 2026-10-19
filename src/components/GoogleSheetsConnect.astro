@@ -16,10 +16,16 @@
         </h3>
 
         <div class="form-group">
-          <label class="form-label">URL del Web App de Apps Script:</label>
+          <label class="form-label" for="inputScriptUrl">URL activa de implementación de Apps Script:</label>
           <input type="url" id="inputScriptUrl" class="form-control" placeholder="https://script.google.com/macros/s/.../exec" />
           <div class="text-muted" style="font-size:11px; margin-top:4px;">
-            Obtén esta URL tras hacer clic en "Desplegar -> Nuevo despliegue -> Aplicación web" en Google Apps Script.
+            La URL activa aparece aquí automáticamente. Puedes copiarla desde el campo o usar el botón; también puedes sustituirla si utilizas otra implementación.
+          </div>
+          <div class="flex-gap" style="margin-top:8px; align-items:center;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnCopyScriptUrl">
+              📋 Copiar URL activa
+            </button>
+            <span id="scriptUrlCopyStatus" class="text-muted" role="status" aria-live="polite" style="font-size:12px;"></span>
           </div>
         </div>
 

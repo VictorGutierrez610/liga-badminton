@@ -7,7 +7,8 @@
 const DEFAULT_SHEET_ID = '1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y';
 
 // Coloca aquí la URL que te genera Google Apps Script al hacer la "Nueva Implementación"
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec';
+const PREVIOUS_DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec';
 
 export const RONDAS = ['Fase de grupos', 'Dieciseisavos', 'Octavos', 'Cuartos', 'Semifinal', 'Final'];
 
@@ -126,7 +127,12 @@ export class BadmintonEngine {
 
   getWebAppUrl() {
     if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem(this.webAppUrlKey) || DEFAULT_WEB_APP_URL;
+      const savedUrl = localStorage.getItem(this.webAppUrlKey);
+      if (savedUrl === PREVIOUS_DEFAULT_WEB_APP_URL) {
+        localStorage.setItem(this.webAppUrlKey, DEFAULT_WEB_APP_URL);
+        return DEFAULT_WEB_APP_URL;
+      }
+      return savedUrl || DEFAULT_WEB_APP_URL;
     }
     return DEFAULT_WEB_APP_URL;
   }

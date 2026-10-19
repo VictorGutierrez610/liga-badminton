@@ -65,6 +65,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   // --- Core Initializer ---
   document.addEventListener("DOMContentLoaded", () => {
+    initTheme();
     initNavigation();
     initAdminMode();
     initVisualizer();
@@ -153,6 +154,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (!notice) return;
     const text = document.getElementById("dataSyncNoticeText");
     const actions = document.getElementById("dataConflictActions");
+    if (!engine.isAdminSession()) {
+      notice.style.display = "none";
+      if (text) text.textContent = "";
+      if (actions) actions.style.display = "none";
+      return;
+    }
+
     if (message !== undefined) {
       if (text) text.textContent = message;
       notice.dataset.kind = kind;
@@ -312,11 +320,36 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       btnCreateComp.style.opacity = isAdmin ? "1" : "0.6";
     }
 
+    renderDataSyncNotice();
+
     // Refresh views to show/hide edit actions
     renderCategoryVisuals();
     if (currentTab === "manager") {
       loadJornadasManager();
     }
+  }
+
+  function initTheme() {
+    const themeButton = document.getElementById("btnToggleTheme");
+    const themeKey = "liga_badminton_theme";
+    const root = document.documentElement;
+
+    function applyTheme(theme) {
+      const isLight = theme === "light";
+      root.dataset.theme = isLight ? "light" : "dark";
+      if (themeButton) {
+        themeButton.textContent = isLight ? "🌙 Tema oscuro" : "☀️ Tema claro";
+        themeButton.setAttribute("aria-label", `Cambiar a tema ${isLight ? "oscuro" : "claro"}`);
+        themeButton.setAttribute("aria-pressed", String(isLight));
+      }
+    }
+
+    applyTheme(localStorage.getItem(themeKey) === "light" ? "light" : "dark");
+    themeButton?.addEventListener("click", () => {
+      const nextTheme = root.dataset.theme === "light" ? "dark" : "light";
+      localStorage.setItem(themeKey, nextTheme);
+      applyTheme(nextTheme);
+    });
   }
 
   // --- Navigation Tabs ---
@@ -2120,6 +2153,21 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (inputUrl) inputUrl.value = engine.getWebAppUrl();
     if (inputPin) inputPin.value = engine.getAdminPin();
     if (displayContainer) displayContainer.textContent = APPS_SCRIPT_CODE;
+
+    document
+      .getElementById("btnCopyScriptUrl")
+      ?.addEventListener("click", async () => {
+        const copyStatus = document.getElementById("scriptUrlCopyStatus");
+        try {
+          await navigator.clipboard.writeText(inputUrl.value.trim());
+          if (copyStatus) copyStatus.textContent = "URL copiada.";
+        } catch {
+          if (copyStatus) {
+            copyStatus.textContent =
+              "No se pudo copiar automáticamente. Selecciona y copia la URL del campo.";
+          }
+        }
+      });
 
     document
       .getElementById("btnCopyScriptCode")

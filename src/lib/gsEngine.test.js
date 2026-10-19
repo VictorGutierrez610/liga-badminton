@@ -4,6 +4,44 @@ import { runInNewContext } from 'node:vm';
 import { BadmintonEngine } from './gsEngine.js';
 import { APPS_SCRIPT_CODE } from './appsScriptBackendCode.js';
 
+test('usa la URL activa de Apps Script como valor predeterminado', () => {
+  const instance = new BadmintonEngine();
+
+  assert.equal(
+    instance.getWebAppUrl(),
+    'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec'
+  );
+});
+
+test('actualiza una URL predeterminada anterior guardada en el navegador', () => {
+  const storage = new Map([[
+    'liga_badminton_script_url',
+    'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec'
+  ]]);
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: key => storage.get(key) || null,
+      setItem: (key, value) => storage.set(key, value)
+    }
+  });
+
+  try {
+    const instance = new BadmintonEngine();
+    const activeUrl = 'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec';
+
+    assert.equal(instance.getWebAppUrl(), activeUrl);
+    assert.equal(storage.get('liga_badminton_script_url'), activeUrl);
+  } finally {
+    if (previousStorage) {
+      Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    } else {
+      delete globalThis.localStorage;
+    }
+  }
+});
+
 function createEngine({
   formato = 'UNO',
   desde = '',
