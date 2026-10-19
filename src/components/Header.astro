@@ -1,10 +1,13 @@
 ---
+import clubLogo from "../assets/logo_cb_universitario-la_laguna_tenerife.webp";
 ---
 
 <header class="main-header glass-card">
   <div class="header-content">
     <div class="brand">
-      <div class="brand-icon">🏸</div>
+      <div class="brand-icon">
+        <img src={clubLogo.src} alt="Club Bádminton Universitario" />
+      </div>
       <div>
         <h1 class="brand-title">Liga de Viernes UNI</h1>
         <p class="brand-sub">Bádminton Universitario · Partidos y competición</p>
@@ -35,7 +38,14 @@
 
   <nav class="nav-tabs" id="appMainNavigation">
     <button class="nav-tab active" data-tab="matches">
-      <span>🎾</span> Partidos
+      <span class="badminton-racket-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <ellipse cx="10" cy="8" rx="4.5" ry="6" transform="rotate(35 10 8)" />
+          <path d="m12.7 12.1 7.1 7.1m-1.4 1.4 2.1-2.1" />
+          <path d="m7.5 3.8 5.1 7.2m-7.7-4.6 7.1 5.1" />
+        </svg>
+      </span>
+      Partidos
     </button>
     <button class="nav-tab" data-tab="rankings">
       <span>🏆</span> Ranking
@@ -99,16 +109,37 @@
   }
 
   .brand-icon {
-    font-size: 36px;
-    background: rgba(139, 92, 246, 0.15);
+    overflow: hidden;
+    background: #ffffff;
     border: 1px solid var(--card-border);
     border-radius: 14px;
     width: 54px;
     height: 54px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     box-shadow: 0 4px 15px var(--primary-glow);
+  }
+
+  .brand-icon img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .badminton-racket-icon {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+  }
+
+  .badminton-racket-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
   }
 
   .brand-title {
@@ -253,7 +284,6 @@
       flex: 0 0 44px;
       width: 44px;
       height: 44px;
-      font-size: 28px;
       border-radius: 12px;
     }
 
