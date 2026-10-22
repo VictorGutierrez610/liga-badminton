@@ -83,6 +83,9 @@
 
         <!-- Form for adding participant -->
         <div id="addInscriptionBox" class="form-group" style="position:relative;">
+          <div id="rotatingDoublesNotice" class="badge badge-borrador" style="display:none; margin-bottom:10px; white-space:normal;">
+            Parejas rotativas: inscribe a cada jugador por separado. Las parejas cambiarán en cada ronda y la final se formará con la clasificación individual.
+          </div>
           <div id="singlePlayerInputArea">
             <label class="form-label">Buscar Jugador / Socio:</label>
             <input type="text" id="inputSearchPlayerSingle" class="form-control" placeholder="Escribe nombre o apellido..." />
@@ -143,6 +146,11 @@
               <div style="font-weight:700;">⚔️ Eliminatoria Directa</div>
               <div class="text-muted" style="font-size:12px;">Cuadro directo KO desde octavos / cuartos / semifinales.</div>
             </div>
+
+            <div class="system-option-card glass-card" data-system="ROTATIVOS" style="display:none; margin:0; padding:12px; cursor:pointer;">
+              <div style="font-weight:700;">🔄 Parejas rotativas + final individual</div>
+              <div class="text-muted" style="font-size:12px;">Seis rondas clasificatorias con parejas distintas y una final formada según la clasificación individual.</div>
+            </div>
           </div>
 
           <div id="groupsConfigBox" style="display:none; margin-bottom:14px;">
@@ -187,6 +195,9 @@
           <button class="btn btn-secondary btn-sm" id="btnGenerateEliminatoria">
             ⚔️ Generar Cuadro Eliminatorio Final
           </button>
+          <button class="btn btn-secondary btn-sm" id="btnGenerateRotatingFinal" style="display:none;">
+            🏆 Generar Final por Clasificación Individual
+          </button>
           <button class="btn btn-primary btn-sm sync-comp-btn" id="btnSaveCompSheets">
             ☁️ Guardar Competición en Google Sheets
           </button>
@@ -195,6 +206,9 @@
           </button>
           <div id="compSheetsMsg" style="font-size:12px; margin-top:6px; text-align:center;"></div>
         </div>
+      </div>
+      <div id="managerRotatingStandings" class="glass-card" style="display:none; grid-column:1 / -1; margin:16px 0 0;">
+        <!-- Individual rotating-doubles standings are rendered here. -->
       </div>
     </div>
   </div>
@@ -367,6 +381,16 @@
           <option value="Dobles">Dobles (DM, DF)</option>
           <option value="Dobles mixtos">Dobles Mixtos (DX)</option>
         </select>
+      </div>
+
+      <div class="form-group" id="newJornadaRotatingGroup" style="display:none;">
+        <label class="form-label" for="newJornadaRotating">
+          <input type="checkbox" id="newJornadaRotating" />
+          Parejas rotativas y final por clasificación individual
+        </label>
+        <small class="text-muted" style="display:block; margin-top:6px;">
+          Disponible para dobles masculinos, femeninos y mixtos. Los participantes se inscriben individualmente.
+        </small>
       </div>
 
       <div class="form-group">

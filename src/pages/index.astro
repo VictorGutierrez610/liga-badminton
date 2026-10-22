@@ -662,16 +662,19 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const pendingGroupMatches = detail.partidos.filter((match) =>
       match.ronda === "Fase de grupos" && match.estado !== "Jugado",
     ).length;
+    const isRotating = detail.competicion.sistema === "ROTATIVOS";
     let html = pendingGroupMatches
       ? `<div class="badge badge-borrador" style="margin-bottom:12px; white-space:normal;">Clasificación provisional · ${pendingGroupMatches} partido(s) de grupo pendiente(s).</div>`
       : "";
-    html += '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Desempates: victorias, diferencia de sets, diferencia de puntos y nombre.</p>';
+    html += isRotating
+      ? '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Clasificación individual · Desempates: victorias, diferencia de puntos, puntos a favor y nombre.</p>'
+      : '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Desempates: victorias, diferencia de sets, diferencia de puntos y nombre.</p>';
     groupKeys.forEach((gName) => {
       const rows = clas[gName];
       html += `
         <div class="glass-card" style="margin-bottom:16px;">
           <h4 style="color:var(--primary-light); margin-bottom:10px; font-size:15px; font-weight:700;">
-            Grupo ${gName}
+            ${isRotating ? "Clasificación individual" : `Grupo ${gName}`}
           </h4>
           <div class="table-container">
             <table class="custom-table">
@@ -1187,13 +1190,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const puntosSet = document.getElementById("newJornadaPuntos").value;
         const desde = (document.getElementById("newJornadaDesde") as HTMLSelectElement).value.trim();
         const ganarPor2 = (document.getElementById("newJornadaGanarPor2") as HTMLInputElement).checked;
+        const parejasRotativas = (document.getElementById("newJornadaRotating") as HTMLInputElement).checked;
         const stopLoading = setButtonLoading(
           (e.currentTarget as HTMLFormElement).querySelector('button[type="submit"]'),
           "Creando jornada…",
         );
 
         try {
-          await engine.crearJornada({ fecha, modalidad, formato, puntosSet, desde, ganarPor2 });
+          await engine.crearJornada({ fecha, modalidad, formato, puntosSet, desde, ganarPor2, parejasRotativas });
           document.getElementById("newJornadaModal").style.display = "none";
           refreshCompetitionState();
         } catch (err) {
@@ -1202,6 +1206,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           stopLoading();
         }
       });
+
+    document.getElementById("newJornadaModalidad")?.addEventListener("change", (event) => {
+      const rotatingGroup = document.getElementById("newJornadaRotatingGroup");
+      const isDoubles = (event.currentTarget as HTMLSelectElement).value !== "Individual";
+      if (rotatingGroup) rotatingGroup.style.display = isDoubles ? "block" : "none";
+      if (!isDoubles) (document.getElementById("newJornadaRotating") as HTMLInputElement).checked = false;
+    });
 
     document.getElementById("newJornadaFormato")?.addEventListener("change", (event) => {
       const desdeGroup = document.getElementById("newJornadaDesdeGroup");
@@ -1313,6 +1324,30 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           if (errEl) {
             errEl.textContent = `${err.message || String(err)}. Comprueba que el código actualizado de Apps Script esté desplegado y que la URL configurada apunte a esa implementación.`;
           }
+        } finally {
+          stopLoading();
+        }
+      });
+
+    document
+      .getElementById("btnGenerateRotatingFinal")
+      ?.addEventListener("click", async (event) => {
+        const errEl = document.getElementById("compSetupError");
+        if (errEl) errEl.textContent = "";
+        const stopLoading = setButtonLoading(
+          event.currentTarget as HTMLButtonElement,
+          "Generando final…",
+        );
+        try {
+          const finalMatch = await engine.generarFinalParejasRotativas(mgrJornadaId, mgrCategory);
+          refreshCompetitionState();
+          const msg = document.getElementById("compSheetsMsg");
+          if (msg) {
+            msg.style.color = "var(--accent-green)";
+            msg.textContent = `✅ Final creada: ${finalMatch.nomA.join(" / ")} contra ${finalMatch.nomB.join(" / ")}.`;
+          }
+        } catch (err) {
+          if (errEl) errEl.textContent = err.message || String(err);
         } finally {
           stopLoading();
         }
@@ -1478,8 +1513,19 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       (expectedSex === "M" && ["MASCULINO", "H", "HOMBRE"].includes(playerSex)) ||
       (expectedSex === "F" && ["FEMENINO", "MUJER"].includes(playerSex));
     const levelMatch = category.match(/-(A|B)$/);
-    return hasExpectedSex && (!levelMatch ||
+    const rotatingDoubles = isRotatingManagerCategory();
+    const validRotatingMixedSex = !rotatingDoubles || category !== "DX" ||
+      ["M", "F", "MASCULINO", "FEMENINO", "H", "HOMBRE", "MUJER"].includes(playerSex);
+    const alreadyInscribed = rotatingDoubles &&
+      engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).participantes
+        .some(participant => (participant.ids || []).map(String).includes(String(socio.id)));
+    return !alreadyInscribed && validRotatingMixedSex && hasExpectedSex && (!levelMatch ||
       String(socio.categoria || "").trim().toUpperCase() === levelMatch[1]);
+  }
+
+  function isRotatingManagerCategory() {
+    const jornada = engine.getJornadas().find((item) => item.id === mgrJornadaId);
+    return Boolean(jornada?.parejasRotativas) && String(mgrCategory || "").startsWith("D");
   }
 
   function resetInscriptionPlayerSelection() {
@@ -1498,11 +1544,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   async function handleAddParticipant(event) {
     const isDoubles = mgrCategory.startsWith("D");
+    const rotatingDoubles = isRotatingManagerCategory();
     const ids = [];
     const errEl = document.getElementById("inscriptionFormError");
     if (errEl) errEl.textContent = "";
 
-    if (!isDoubles) {
+    if (!isDoubles || rotatingDoubles) {
       if (!selectedPlayerSingle) {
         if (errEl) errEl.textContent = "Selecciona un jugador del buscador.";
         return;
@@ -1785,7 +1832,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         tr.innerHTML = `
           <td>${escapeHtml(j.id)}</td>
           <td class="text-left"><b>${formatShortDate(j.fecha)}</b></td>
-          <td>${escapeHtml(j.modalidad)}</td>
+          <td>${escapeHtml(j.modalidad)}${j.parejasRotativas ? '<small class="text-muted" style="display:block;">🔄 Parejas rotativas</small>' : ""}</td>
           <td>${formatControl}</td>
           <td>${desdeControl}</td>
           <td>${j.puntosSet}</td>
@@ -1916,12 +1963,27 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     // Toggle doubles vs single form
     const isDoubles = mgrCategory.startsWith("D");
-    document.getElementById("singlePlayerInputArea").style.display = isDoubles
-      ? "none"
-      : "block";
-    document.getElementById("doublesPlayerInputArea").style.display = isDoubles
-      ? "grid"
-      : "none";
+    const rotatingDoubles = isRotatingManagerCategory();
+    document.getElementById("singlePlayerInputArea").style.display =
+      !isDoubles || rotatingDoubles ? "block" : "none";
+    document.getElementById("doublesPlayerInputArea").style.display =
+      isDoubles && !rotatingDoubles ? "grid" : "none";
+    const rotatingNotice = document.getElementById("rotatingDoublesNotice");
+    if (rotatingNotice) rotatingNotice.style.display = rotatingDoubles ? "block" : "none";
+
+    if (!detail.competicion) {
+      if (rotatingDoubles) selectedSystem = "ROTATIVOS";
+      else if (selectedSystem === "ROTATIVOS") selectedSystem = "LIGA";
+    }
+    document.querySelectorAll(".system-option-card").forEach((card) => {
+      const isRotatingSystem = card.getAttribute("data-system") === "ROTATIVOS";
+      card.style.display = rotatingDoubles === isRotatingSystem ? "block" : "none";
+      card.classList.toggle("selected", card.getAttribute("data-system") === selectedSystem);
+    });
+    const groupsConfig = document.getElementById("groupsConfigBox");
+    if (groupsConfig) groupsConfig.style.display = !detail.competicion && selectedSystem === "GRUPOS" ? "block" : "none";
+    const knockoutConfig = document.getElementById("knockoutConfigBox");
+    if (knockoutConfig) knockoutConfig.style.display = !detail.competicion && selectedSystem === "ELIM" ? "block" : "none";
 
     // Count
     document.getElementById("inscritosCount").textContent =
@@ -1940,7 +2002,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           html += `
             <div class="glass-card flex-between inscrito-card">
               <span class="inscrito-card-content" style="font-size:14px; font-weight:600; line-height:1.4;">${escapeHtml(p.nombres.join(" / "))}<small class="text-muted" style="display:block; margin-top:4px; font-size:11px;">ID: ${escapeHtml(p.id)} · Participantes: ${escapeHtml((p.ids || []).join("|"))}</small></span>
-              ${isDoubles && engine.isAdminSession() ? `<button class="btn btn-secondary btn-sm edit-pair-btn" data-id="${escapeHtml(p.id)}" type="button">Editar pareja ✏️</button>` : ""}
+              ${isDoubles && !rotatingDoubles && engine.isAdminSession() ? `<button class="btn btn-secondary btn-sm edit-pair-btn" data-id="${escapeHtml(p.id)}" type="button">Editar pareja ✏️</button>` : ""}
               ${!detail.competicion ? `<button class="btn btn-danger btn-sm remove-inscrito-btn" data-id="${escapeHtml(p.id)}" style="padding:2px 6px; font-size:10px;">Quitar ✕</button>` : ""}
             </div>
           `;
@@ -1980,9 +2042,18 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       if (activeActions) activeActions.style.display = "grid";
       const groupKnockoutConfig = document.getElementById("groupKnockoutConfig");
       const generateBracketButton = document.getElementById("btnGenerateEliminatoria");
+      const generateRotatingFinalButton = document.getElementById("btnGenerateRotatingFinal");
       const canGenerateGroupBracket = detail.competicion.sistema === "GRUPOS" &&
         detail.todosGruposTerminados &&
         getQualifiedGroupEntries().length >= 2;
+      const qualifyingMatches = detail.partidos.filter((match) => match.ronda === "Fase de grupos");
+      const qualifyingRoundsCount = new Set(qualifyingMatches.map((match) => match.grupo)).size;
+      const hasRotatingFinal = detail.partidos.some((match) => match.ronda === "Final");
+      const canGenerateRotatingFinal = detail.competicion.sistema === "ROTATIVOS" &&
+        qualifyingMatches.length > 0 &&
+        qualifyingRoundsCount === 6 &&
+        qualifyingMatches.every((match) => match.estado === "Jugado") &&
+        !hasRotatingFinal;
       if (groupKnockoutConfig)
         groupKnockoutConfig.style.display = detail.competicion.sistema === "GRUPOS" ? "block" : "none";
       if (generateBracketButton) {
@@ -1992,11 +2063,21 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           ? "Generar los cruces de los clasificados"
           : "Termina todos los partidos de grupo para generar el cuadro";
       }
+      if (generateRotatingFinalButton) {
+        generateRotatingFinalButton.style.display =
+          detail.competicion.sistema === "ROTATIVOS" ? "block" : "none";
+        generateRotatingFinalButton.disabled = !canGenerateRotatingFinal;
+        generateRotatingFinalButton.title = canGenerateRotatingFinal
+          ? "Crear la final con los mejores clasificados individualmente"
+          : hasRotatingFinal
+            ? "La final ya está generada"
+            : "Completa las seis rondas clasificatorias antes de generar la final";
+      }
       renderGroupKnockoutPairings();
       if (statusOverview) {
         statusOverview.innerHTML = `
           <div class="badge badge-definitiva" style="font-size:13px; padding:6px 12px; width:100%; justify-content:center;">
-            Competición Activa: ${detail.competicion.sistema} (${detail.partidos.length} partidos)
+            ${detail.competicion.sistema === "ROTATIVOS" ? "Parejas rotativas · Clasificación individual" : `Competición Activa: ${detail.competicion.sistema}`} (${detail.partidos.length} partidos)
           </div>
         `;
       }
@@ -2018,8 +2099,47 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (configEl) {
       const comp = detail.competicion;
       configEl.textContent = comp
-        ? `${comp.sistema} · ${comp.grupos || 0} grupo(s) · ${comp.clasifican || 0} clasifican`
+        ? comp.sistema === "ROTATIVOS"
+          ? "Parejas rotativas · seis rondas clasificatorias · final por clasificación individual"
+          : `${comp.sistema} · ${comp.grupos || 0} grupo(s) · ${comp.clasifican || 0} clasifican`
         : "Sin configuración de competición";
+    }
+    const rotatingStandings = document.getElementById("managerRotatingStandings");
+    if (rotatingStandings) {
+      if (detail.competicion?.sistema !== "ROTATIVOS") {
+        rotatingStandings.style.display = "none";
+        rotatingStandings.innerHTML = "";
+      } else {
+        const ranking = detail.clasificacion["Clasificación individual"] || [];
+        rotatingStandings.style.display = "block";
+        rotatingStandings.innerHTML = `
+          <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:10px;">
+            Clasificación individual · Parejas rotativas
+          </h3>
+          <p class="text-muted" style="font-size:12px; margin-bottom:12px;">
+            Desempates: victorias, diferencia de puntos, puntos a favor y nombre.
+            ${detail.todosGruposTerminados ? "Rondas clasificatorias completadas." : "Clasificación provisional."}
+          </p>
+          <div class="table-container">
+            <table class="custom-table">
+              <thead>
+                <tr><th>Pos</th><th class="text-left">Jugador</th><th>PJ</th><th>G</th><th>P</th><th>PF</th><th>PC</th><th>Dif.</th></tr>
+              </thead>
+              <tbody>
+                ${ranking.map((player, index) => `
+                  <tr class="${index === 0 ? "leader-row" : ""}">
+                    <td><b>${index + 1}º</b></td>
+                    <td class="text-left">${escapeHtml(player.nombre)}</td>
+                    <td>${player.PJ}</td><td class="text-green">${player.G}</td>
+                    <td class="text-red">${player.P}</td><td>${player.PF}</td><td>${player.PC}</td>
+                    <td class="${player.diffPuntosGrupo < 0 ? "text-red" : "text-green"}">${player.diffPuntosGrupo > 0 ? "+" : ""}${player.diffPuntosGrupo}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
     }
     renderManagerMatchDetails(detail.partidos);
   }

@@ -492,6 +492,192 @@ test('editar el resultado de grupos invalida el cuadro calculado con la clasific
   assert.equal(instance.partidos.some(match => match.ronda === 'Semifinal'), false);
 });
 
+test('genera seis rondas rotativas equilibrando las participaciones en dobles masculinos', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.jornadas[0].modalidad = 'Dobles';
+  instance.socios = Array.from({ length: 8 }, (_, index) => ({
+    id: String(index + 1),
+    nombre: `Jugador ${index + 1}`,
+    apellidos: 'Prueba',
+    sexo: 'M'
+  }));
+
+  for (let id = 1; id <= 8; id++) {
+    await instance.anadirInscrito('J1', 'DM', [String(id)]);
+  }
+  await instance.crearCompeticion('J1', 'DM', { sistema: 'ROTATIVOS' });
+
+  const matches = instance.partidos.filter(match => match.categoria === 'DM');
+  assert.equal(matches.length, 12);
+  assert.deepEqual(
+    [...new Set(matches.map(match => match.grupo))],
+    ['Ronda 1', 'Ronda 2', 'Ronda 3', 'Ronda 4', 'Ronda 5', 'Ronda 6']
+  );
+  const appearances = new Map();
+  matches.forEach(match => {
+    assert.equal(match.idsA.length, 2);
+    assert.equal(match.idsB.length, 2);
+    assert.equal(new Set([...match.idsA, ...match.idsB]).size, 4);
+    [...match.idsA, ...match.idsB].forEach(id => appearances.set(id, (appearances.get(id) || 0) + 1));
+  });
+  assert.deepEqual([...appearances.values()], Array(8).fill(6));
+});
+
+test('persiste la opción de parejas rotativas en jornadas de dobles, no en individuales', async () => {
+  const instance = createEngine();
+  const rotating = await instance.crearJornada({
+    fecha: '2026-11-20',
+    modalidad: 'Dobles',
+    formato: 'UNO',
+    puntosSet: 15,
+    parejasRotativas: true
+  });
+  const individual = await instance.crearJornada({
+    fecha: '2026-11-27',
+    modalidad: 'Individual',
+    formato: 'UNO',
+    puntosSet: 15,
+    parejasRotativas: true
+  });
+
+  assert.equal(rotating.parejasRotativas, true);
+  assert.equal(individual.parejasRotativas, false);
+  assert.equal(instance.getStateSnapshot().jornadas.find(item => item.id === rotating.id).parejasRotativas, true);
+});
+
+test('genera rondas mixtas con una mujer y un hombre en cada lado e impide repetir inscripciones', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.jornadas[0].modalidad = 'Dobles mixtos';
+  instance.socios = [
+    ...Array.from({ length: 20 }, (_, index) => ({
+      id: String(index + 1),
+      nombre: `Hombre ${index + 1}`,
+      apellidos: 'Prueba',
+      sexo: 'M'
+    })),
+    ...Array.from({ length: 15 }, (_, index) => ({
+      id: String(index + 21),
+      nombre: `Mujer ${index + 1}`,
+      apellidos: 'Prueba',
+      sexo: 'F'
+    }))
+  ];
+
+  for (let id = 1; id <= 35; id++) {
+    await instance.anadirInscrito('J1', 'DX', [String(id)]);
+  }
+  await assert.rejects(instance.anadirInscrito('J1', 'DX', ['1']), /ya está inscrito/);
+  instance.socios.push({ id: '36', nombre: 'Sin sexo', apellidos: 'Prueba', sexo: '' });
+  await assert.rejects(instance.anadirInscrito('J1', 'DX', ['36']), /sexo indicado/);
+  await instance.crearCompeticion('J1', 'DX', { sistema: 'ROTATIVOS' });
+
+  assert.equal(instance.partidos.length, 42);
+  assert.deepEqual(
+    Array.from({ length: 6 }, (_, index) =>
+      instance.partidos.filter(match => match.grupo === `Ronda ${index + 1}`).length
+    ),
+    Array(6).fill(7)
+  );
+  const appearances = new Map();
+  for (let round = 1; round <= 6; round++) {
+    const roundMatches = instance.partidos.filter(match => match.grupo === `Ronda ${round}`);
+    const roundPlayerIds = roundMatches.flatMap(match => [...match.idsA, ...match.idsB]);
+    assert.equal(new Set(roundPlayerIds).size, 28);
+    roundPlayerIds.forEach(id => appearances.set(id, (appearances.get(id) || 0) + 1));
+  }
+  const maleAppearances = Array.from({ length: 20 }, (_, index) => appearances.get(String(index + 1)));
+  const femaleAppearances = Array.from({ length: 15 }, (_, index) => appearances.get(String(index + 21)));
+  assert.ok(Math.max(...maleAppearances) - Math.min(...maleAppearances) <= 1);
+  assert.ok(Math.max(...femaleAppearances) - Math.min(...femaleAppearances) <= 1);
+  assert.equal(maleAppearances.reduce((sum, count) => sum + count, 0), 84);
+  assert.equal(femaleAppearances.reduce((sum, count) => sum + count, 0), 84);
+  instance.partidos.forEach(match => {
+    for (const side of ['A', 'B']) {
+      const sexes = match[`ids${side}`].map(id =>
+        instance.socios.find(socio => socio.id === id).sexo
+      );
+      assert.deepEqual(sexes.sort(), ['F', 'M']);
+    }
+  });
+});
+
+test('no limita el número de partidos por ronda y reparte descansos con inscritos no divisibles entre cuatro', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.jornadas[0].modalidad = 'Dobles';
+  instance.socios = Array.from({ length: 26 }, (_, index) => ({
+    id: String(index + 1),
+    nombre: `Jugador ${index + 1}`,
+    apellidos: 'Prueba',
+    sexo: 'M'
+  }));
+  for (let id = 1; id <= 26; id++) {
+    await instance.anadirInscrito('J1', 'DM', [String(id)]);
+  }
+  await instance.crearCompeticion('J1', 'DM', { sistema: 'ROTATIVOS' });
+
+  assert.equal(instance.partidos.length, 36);
+  const appearances = new Map();
+  for (let round = 1; round <= 6; round++) {
+    const roundMatches = instance.partidos.filter(match => match.grupo === `Ronda ${round}`);
+    const roundPlayerIds = roundMatches.flatMap(match => [...match.idsA, ...match.idsB]);
+    assert.equal(roundMatches.length, 6);
+    assert.equal(new Set(roundPlayerIds).size, 24);
+    roundPlayerIds.forEach(id => appearances.set(id, (appearances.get(id) || 0) + 1));
+  }
+  const counts = Array.from({ length: 26 }, (_, index) => appearances.get(String(index + 1)) || 0);
+  assert.ok(Math.max(...counts) - Math.min(...counts) <= 1);
+  assert.equal(counts.reduce((sum, count) => sum + count, 0), 144);
+});
+
+test('clasifica individualmente y genera la final mixta con los dos primeros de cada sexo', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.jornadas[0].modalidad = 'Dobles mixtos';
+  instance.socios = [
+    { id: 'm1', nombre: 'Hombre 1', apellidos: 'Prueba', sexo: 'M' },
+    { id: 'm2', nombre: 'Hombre 2', apellidos: 'Prueba', sexo: 'M' },
+    { id: 'f1', nombre: 'Mujer 1', apellidos: 'Prueba', sexo: 'F' },
+    { id: 'f2', nombre: 'Mujer 2', apellidos: 'Prueba', sexo: 'F' }
+  ];
+  const inscritos = instance.socios.map(player => ({
+    id: player.id,
+    ids: [player.id],
+    nombres: [`${player.nombre} ${player.apellidos}`]
+  }));
+  instance.inscritos['J1_DX'] = inscritos;
+  instance.competiciones['J1_DX'] = { sistema: 'ROTATIVOS', grupos: 1, clasifican: 0 };
+  instance.partidos = [
+    { id: 'r1', jornada: 'J1', categoria: 'DX', ronda: 'Fase de grupos', grupo: 'Ronda 1', estado: 'Jugado', ganador: 'A', idsA: ['f1', 'm1'], idsB: ['f2', 'm2'], sets: [[15, 10]] },
+    { id: 'r2', jornada: 'J1', categoria: 'DX', ronda: 'Fase de grupos', grupo: 'Ronda 2', estado: 'Jugado', ganador: 'A', idsA: ['f1', 'm1'], idsB: ['f2', 'm2'], sets: [[15, 10]] },
+    { id: 'r3', jornada: 'J1', categoria: 'DX', ronda: 'Fase de grupos', grupo: 'Ronda 3', estado: 'Jugado', ganador: 'A', idsA: ['f1', 'm1'], idsB: ['f2', 'm2'], sets: [[15, 10]] },
+    { id: 'r4', jornada: 'J1', categoria: 'DX', ronda: 'Fase de grupos', grupo: 'Ronda 4', estado: 'Jugado', ganador: 'B', idsA: ['f2', 'm2'], idsB: ['f1', 'm1'], sets: [[10, 15]] },
+    { id: 'r5', jornada: 'J1', categoria: 'DX', ronda: 'Fase de grupos', grupo: 'Ronda 5', estado: 'Jugado', ganador: 'B', idsA: ['f2', 'm2'], idsB: ['f1', 'm1'], sets: [[10, 15]] },
+    { id: 'r6', jornada: 'J1', categoria: 'DX', ronda: 'Fase de grupos', grupo: 'Ronda 6', estado: 'Jugado', ganador: 'B', idsA: ['f2', 'm2'], idsB: ['f1', 'm1'], sets: [[10, 15]] }
+  ];
+  const detail = instance.getCompeticionDetalle('J1', 'DX');
+  const ranking = detail.clasificacion['Clasificación individual'];
+  assert.equal(ranking.find(player => player.id === 'm1').G, 6);
+  assert.equal(ranking.find(player => player.id === 'f1').PF, 90);
+  instance.persistBracketMatches = async (matches, updatedMatches) => {
+    assert.equal(matches.length, 1);
+    assert.equal(updatedMatches.length, 7);
+    return { created: 1, updated: 0 };
+  };
+
+  const finalMatch = await instance.generarFinalParejasRotativas('J1', 'DX');
+
+  assert.equal(finalMatch.ronda, 'Final');
+  assert.deepEqual(finalMatch.idsA, ['f1', 'm1']);
+  assert.deepEqual(finalMatch.idsB, ['f2', 'm2']);
+  assert.equal(instance.partidos.length, 7);
+  await assert.rejects(instance.generarFinalParejasRotativas('J1', 'DX'), /ya está creada/);
+});
+
 test('el código Apps Script embebido mantiene sintaxis JavaScript válida', () => {
   assert.doesNotThrow(() => new Function(APPS_SCRIPT_CODE));
+  assert.match(APPS_SCRIPT_CODE, /ParejasRotativas/);
+  assert.match(APPS_SCRIPT_CODE, /j\.parejasRotativas\s*\|\|\s*false/);
 });

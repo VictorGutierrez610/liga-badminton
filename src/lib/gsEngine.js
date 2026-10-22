@@ -50,6 +50,7 @@ const ROUND_STAGE = {
   Semifinal: 4,
   Final: 5
 };
+const ROTATING_QUALIFYING_ROUNDS = 6;
 
 export const INITIAL_SOCIOS = [
   { id: '1', nombre: 'Molaye', apellidos: 'Mohamed Ahid', sexo: 'M', categoria: 'B' },
@@ -397,6 +398,7 @@ export class BadmintonEngine {
       modalidad: data.modalidad,
       formato: data.formato,
       desde: data.formato === 'MIXTO' ? data.desde : '',
+      parejasRotativas: Boolean(data.parejasRotativas) && data.modalidad !== 'Individual',
       puntosSet,
       ganarPor2: !!data.ganarPor2,
       definitiva: false,
@@ -586,6 +588,26 @@ export class BadmintonEngine {
       throw new Error('La competición ya ha sido creada. No se pueden añadir participantes.');
     }
 
+    const jornada = this.jornadas.find(item => item.id === idJornada);
+    const rotatingDoubles = Boolean(jornada?.parejasRotativas) && String(categoria).startsWith('D');
+    if (rotatingDoubles) {
+      if (!Array.isArray(ids) || ids.length !== 1) {
+        throw new Error('En jornadas de parejas rotativas se inscribe a cada jugador individualmente.');
+      }
+      const sex = this.getRotatingPlayerSex(ids[0]);
+      const expectedSex = categoria === 'DM' ? 'M' : categoria === 'DF' ? 'F' : '';
+      if (categoria === 'DX' && !sex) {
+        throw new Error('Los participantes de dobles mixtos deben tener el sexo indicado como masculino o femenino en sus datos.');
+      }
+      if (expectedSex && sex !== expectedSex) {
+        throw new Error(`La categoría ${categoria} requiere participantes ${expectedSex === 'M' ? 'masculinos' : 'femeninos'}.`);
+      }
+      const currentInscritos = this.inscritos[key] || [];
+      if (currentInscritos.some(participant => (participant.ids || []).map(String).includes(String(ids[0])))) {
+        throw new Error('Este jugador ya está inscrito en esta categoría.');
+      }
+    }
+
     if (!this.inscritos[key]) this.inscritos[key] = [];
     const list = this.inscritos[key];
 
@@ -734,6 +756,17 @@ export class BadmintonEngine {
         clasifican: 0,
         metodoCruces: cfg.metodoCruces === 'MANUAL' ? 'MANUAL' : 'ALEATORIO'
       };
+    } else if (cfg.sistema === 'ROTATIVOS') {
+      const jornada = this.jornadas.find(item => item.id === idJornada);
+      if (!jornada?.parejasRotativas || !categoria.startsWith('D')) {
+        throw new Error('El sistema de parejas rotativas solo está disponible en jornadas de dobles configuradas para ello.');
+      }
+      newMatches.push(...this.generateRotatingDoublesMatches(jornada, categoria, insc));
+      competitionConfig = {
+        sistema: 'ROTATIVOS',
+        grupos: 1,
+        clasifican: 0
+      };
     } else {
       throw new Error('El sistema de competición seleccionado no es válido.');
     }
@@ -864,6 +897,7 @@ export class BadmintonEngine {
         String(jornada.desde || '') === String(expectedJornada.desde || '') &&
         Number(jornada.puntosSet) === Number(expectedJornada.puntosSet) &&
         Boolean(jornada.ganarPor2) === Boolean(expectedJornada.ganarPor2) &&
+        Boolean(jornada.parejasRotativas) === Boolean(expectedJornada.parejasRotativas) &&
         Boolean(jornada.definitiva) === Boolean(expectedJornada.definitiva);
     });
     if (!sameJornadas) return false;
@@ -915,6 +949,302 @@ export class BadmintonEngine {
         sameNames(actualMatch.nomB || [], expectedMatch.nomB || []) &&
         JSON.stringify(actualMatch.sets || []) === JSON.stringify(expectedMatch.sets || []);
     });
+  }
+
+  getRotatingPlayerSex(id) {
+    const socio = this.socios.find(item => String(item.id) === String(id));
+    const sex = String(socio?.sexo || '').trim().toLocaleUpperCase('es')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (['M', 'H', 'MASCULINO', 'HOMBRE'].includes(sex)) return 'M';
+    if (['F', 'FEMENINO', 'MUJER'].includes(sex)) return 'F';
+    return '';
+  }
+
+  generateRotatingDoublesMatches(jornada, categoria, inscritos) {
+    const players = inscritos.map(participant => {
+      if (!Array.isArray(participant.ids) || participant.ids.length !== 1) {
+        throw new Error('En parejas rotativas cada inscripción debe corresponder a una sola persona.');
+      }
+      const id = String(participant.ids[0]);
+      if (String(participant.id) !== id) {
+        throw new Error('La inscripción individual no tiene un identificador compatible con parejas rotativas.');
+      }
+      return {
+        id,
+        nombre: participant.nombres?.[0] || this.getNombreSocio(id),
+        sexo: this.getRotatingPlayerSex(id),
+        apariciones: 0
+      };
+    });
+    if (new Set(players.map(player => player.id)).size !== players.length) {
+      throw new Error('Hay participantes duplicados en la inscripción de parejas rotativas.');
+    }
+
+    const isMixed = categoria === 'DX';
+    const expectedSex = categoria === 'DM' ? 'M' : categoria === 'DF' ? 'F' : '';
+    if (!isMixed && !expectedSex) {
+      throw new Error('Las parejas rotativas solo están disponibles en categorías de dobles.');
+    }
+    if (expectedSex && players.some(player => player.sexo !== expectedSex)) {
+      throw new Error(`La categoría ${categoria} requiere inscribir únicamente participantes ${expectedSex === 'M' ? 'masculinos' : 'femeninos'}.`);
+    }
+
+    const malePlayers = players.filter(player => player.sexo === 'M');
+    const femalePlayers = players.filter(player => player.sexo === 'F');
+    if (players.some(player => !player.sexo)) {
+      throw new Error('No se puede identificar el sexo de todos los inscritos. Revisa sus datos antes de generar los partidos.');
+    }
+    if (isMixed && (malePlayers.length < 2 || femalePlayers.length < 2)) {
+      throw new Error('Para dobles mixtos rotativos hacen falta al menos dos jugadores y dos jugadoras.');
+    }
+    if (!isMixed && players.length < 4) {
+      throw new Error('Para dobles rotativos hacen falta al menos cuatro participantes.');
+    }
+
+    const matchesPerRound = isMixed
+      ? Math.min(Math.floor(malePlayers.length / 2), Math.floor(femalePlayers.length / 2))
+      : Math.floor(players.length / 4);
+    if (matchesPerRound < 1) {
+      throw new Error('No hay suficientes participantes para generar un partido de dobles.');
+    }
+
+    const partnerHistory = new Map();
+    const pairKey = (a, b) => [a, b].sort((left, right) => left.localeCompare(right, 'en')).join('|');
+    const selectPlayers = (pool, count) => this.shuffle([...pool])
+      .sort((a, b) => a.apariciones - b.apariciones)
+      .slice(0, count);
+    const pairPlayers = (pool) => {
+      const remaining = this.shuffle([...pool]);
+      const pairs = [];
+      while (remaining.length >= 2) {
+        const first = remaining.shift();
+        remaining.sort((a, b) =>
+          (partnerHistory.get(pairKey(first.id, a.id)) || 0) -
+          (partnerHistory.get(pairKey(first.id, b.id)) || 0)
+        );
+        const second = remaining.shift();
+        pairs.push([first, second]);
+      }
+      return pairs;
+    };
+    const pairMixedPlayers = () => {
+      const men = selectPlayers(malePlayers, matchesPerRound * 2);
+      const availableWomen = selectPlayers(femalePlayers, matchesPerRound * 2);
+      const teams = [];
+      men.forEach(man => {
+        availableWomen.sort((a, b) =>
+          (partnerHistory.get(pairKey(man.id, a.id)) || 0) -
+          (partnerHistory.get(pairKey(man.id, b.id)) || 0)
+        );
+        const woman = availableWomen.shift();
+        teams.push([woman, man]);
+        const key = pairKey(man.id, woman.id);
+        partnerHistory.set(key, (partnerHistory.get(key) || 0) + 1);
+      });
+      return teams;
+    };
+    const newMatches = [];
+    const datePrefix = Date.now();
+
+    for (let round = 1; round <= ROTATING_QUALIFYING_ROUNDS; round++) {
+      const teams = isMixed
+        ? pairMixedPlayers()
+        : pairPlayers(selectPlayers(players, matchesPerRound * 4));
+
+      for (let index = 0; index < matchesPerRound; index++) {
+        const teamA = teams[index * 2];
+        const teamB = teams[index * 2 + 1];
+        [...teamA, ...teamB].forEach(player => { player.apariciones++; });
+        if (!isMixed) {
+          [teamA, teamB].forEach(team => {
+            const key = pairKey(team[0].id, team[1].id);
+            partnerHistory.set(key, (partnerHistory.get(key) || 0) + 1);
+          });
+        }
+        const idsA = teamA.map(player => player.id);
+        const idsB = teamB.map(player => player.id);
+        newMatches.push({
+          id: `PR_${datePrefix}_${round}_${index + 1}_${Math.random().toString(36).slice(2, 6)}`,
+          jornada: jornada.id,
+          fecha: jornada.fecha,
+          categoria,
+          ronda: 'Fase de grupos',
+          grupo: `Ronda ${round}`,
+          orden: index + 1,
+          estado: 'Pendiente',
+          idsA,
+          nomA: teamA.map(player => player.nombre),
+          idsB,
+          nomB: teamB.map(player => player.nombre),
+          sets: [],
+          ganador: '',
+          registrado: ''
+        });
+      }
+    }
+    return newMatches;
+  }
+
+  calcRotatingClassification(inscritos, partidos) {
+    const stats = {};
+    inscritos.forEach(participant => {
+      const id = String(participant.ids?.[0] || participant.id);
+      const nombre = participant.nombres?.[0] || this.getNombreSocio(id);
+      stats[id] = {
+        id,
+        ids: [id],
+        nombres: [nombre],
+        nombre,
+        grupo: 'Clasificación individual',
+        PJ: 0, G: 0, P: 0,
+        SF: 0, SC: 0, PF: 0, PC: 0,
+        grupoVictorias: 0,
+        diffSetsGrupo: 0,
+        diffPuntosGrupo: 0,
+        pts: 10
+      };
+    });
+
+    partidos.forEach(match => {
+      if (match.ronda !== 'Fase de grupos' || match.estado !== 'Jugado') return;
+      const idsA = (match.idsA || []).map(String);
+      const idsB = (match.idsB || []).map(String);
+      const scoreA = (match.sets || []).reduce((sum, set) => sum + Number(set[0] || 0), 0);
+      const scoreB = (match.sets || []).reduce((sum, set) => sum + Number(set[1] || 0), 0);
+      const setsA = (match.sets || []).filter(set => set[0] > set[1]).length;
+      const setsB = (match.sets || []).filter(set => set[1] > set[0]).length;
+      idsA.forEach(id => {
+        const player = stats[id];
+        if (!player) return;
+        player.PJ++;
+        player.PF += scoreA;
+        player.PC += scoreB;
+        player.SF += setsA;
+        player.SC += setsB;
+        if (match.ganador === 'A') {
+          player.G++;
+          player.grupoVictorias++;
+        } else if (match.ganador === 'B') {
+          player.P++;
+        }
+      });
+      idsB.forEach(id => {
+        const player = stats[id];
+        if (!player) return;
+        player.PJ++;
+        player.PF += scoreB;
+        player.PC += scoreA;
+        player.SF += setsB;
+        player.SC += setsA;
+        if (match.ganador === 'B') {
+          player.G++;
+          player.grupoVictorias++;
+        } else if (match.ganador === 'A') {
+          player.P++;
+        }
+      });
+    });
+
+    const ranking = Object.values(stats);
+    ranking.forEach(player => {
+      player.diffSetsGrupo = player.SF - player.SC;
+      player.diffPuntosGrupo = player.PF - player.PC;
+      player.pts = 10 + player.grupoVictorias * 5;
+    });
+    ranking.sort((a, b) =>
+      b.grupoVictorias - a.grupoVictorias ||
+      b.diffPuntosGrupo - a.diffPuntosGrupo ||
+      b.PF - a.PF ||
+      a.nombre.localeCompare(b.nombre, 'es')
+    );
+    return { 'Clasificación individual': ranking };
+  }
+
+  async generarFinalParejasRotativas(idJornada, categoria) {
+    const key = `${idJornada}_${categoria}`;
+    const jornada = this.jornadas.find(item => item.id === idJornada);
+    const competicion = this.competiciones[key];
+    if (!jornada?.parejasRotativas || competicion?.sistema !== 'ROTATIVOS') {
+      throw new Error('No existe una competición de parejas rotativas para esta categoría.');
+    }
+    const qualifyingMatches = this.partidos.filter(match =>
+      match.jornada === idJornada &&
+      match.categoria === categoria &&
+      match.ronda === 'Fase de grupos'
+    );
+    if (!qualifyingMatches.length || qualifyingMatches.some(match => match.estado !== 'Jugado')) {
+      throw new Error('Debes completar todas las rondas clasificatorias antes de generar la final.');
+    }
+    const inscritos = this.inscritos[key] || [];
+    const isMixed = categoria === 'DX';
+    const maleCount = inscritos.filter(player => this.getRotatingPlayerSex(player.ids?.[0]) === 'M').length;
+    const femaleCount = inscritos.filter(player => this.getRotatingPlayerSex(player.ids?.[0]) === 'F').length;
+    const matchesPerRound = isMixed
+      ? Math.min(Math.floor(maleCount / 2), Math.floor(femaleCount / 2))
+      : Math.floor(inscritos.length / 4);
+    const expectedRounds = Array.from(
+      { length: ROTATING_QUALIFYING_ROUNDS },
+      (_, index) => `Ronda ${index + 1}`
+    );
+    if (
+      matchesPerRound < 1 ||
+      qualifyingMatches.length !== matchesPerRound * ROTATING_QUALIFYING_ROUNDS ||
+      expectedRounds.some(round =>
+        qualifyingMatches.filter(match => match.grupo === round).length !== matchesPerRound
+      )
+    ) {
+      throw new Error('La fase clasificatoria no contiene las seis rondas completas esperadas; revisa los partidos antes de generar la final.');
+    }
+    if (this.partidos.some(match =>
+      match.jornada === idJornada && match.categoria === categoria && match.ronda === 'Final'
+    )) {
+      throw new Error('La final de parejas rotativas ya está creada.');
+    }
+
+    const classification = this.calcRotatingClassification(
+      inscritos,
+      qualifyingMatches
+    )['Clasificación individual'];
+    let teamA;
+    let teamB;
+    if (isMixed) {
+      const men = classification.filter(player => this.getRotatingPlayerSex(player.id) === 'M');
+      const women = classification.filter(player => this.getRotatingPlayerSex(player.id) === 'F');
+      if (men.length < 2 || women.length < 2) {
+        throw new Error('Para la final mixta hacen falta dos jugadores y dos jugadoras clasificadas.');
+      }
+      teamA = [women[0], men[0]];
+      teamB = [women[1], men[1]];
+    } else {
+      if (classification.length < 4) {
+        throw new Error('Se necesitan al menos cuatro participantes para generar la final.');
+      }
+      teamA = classification.slice(0, 2);
+      teamB = classification.slice(2, 4);
+    }
+
+    const finalMatch = {
+      id: `PR_FINAL_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      jornada: idJornada,
+      fecha: jornada.fecha,
+      categoria,
+      ronda: 'Final',
+      grupo: '',
+      orden: 1,
+      estado: 'Pendiente',
+      idsA: teamA.map(player => player.id),
+      nomA: teamA.map(player => player.nombre),
+      idsB: teamB.map(player => player.id),
+      nomB: teamB.map(player => player.nombre),
+      sets: [],
+      ganador: '',
+      registrado: ''
+    };
+    const updatedMatches = [...this.partidos, finalMatch];
+    await this.persistBracketMatches([finalMatch], updatedMatches);
+    this.partidos = updatedMatches;
+    this.saveState();
+    return finalMatch;
   }
 
   generateRoundRobin(jornada, categoria, grupoName, participantIds, inscritos) {
@@ -1252,6 +1582,10 @@ export class BadmintonEngine {
   }
 
   calcClasificacion(inscritos, partidos, comp) {
+    if (comp?.sistema === 'ROTATIVOS') {
+      return this.calcRotatingClassification(inscritos, partidos);
+    }
+
     const stats = {};
     const participantByMatchIds = new Map(inscritos.map(participant => [
       [...(participant.ids || [])].map(String).sort((a, b) => Number(a) - Number(b)).join('+'),
@@ -1630,7 +1964,7 @@ export class BadmintonEngine {
           winnerIds.forEach(id => groupWins.set(id, (groupWins.get(id) || 0) + 1));
         });
 
-        if (comp.sistema === 'GRUPOS') {
+        if (comp.sistema === 'GRUPOS' || comp.sistema === 'ROTATIVOS') {
           inscritos.forEach(participant => {
             (participant.ids || []).forEach(id => {
               addPoints(id, 10 + (groupWins.get(id) || 0) * 5);
