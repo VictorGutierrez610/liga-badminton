@@ -36,7 +36,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 </Layout>
 
 <script>
-  import { engine, RONDAS, CATEGORIAS } from "../lib/gsEngine.js";
+  import { engine, RONDAS, CATEGORIAS, getKnockoutRoundTitle } from "../lib/gsEngine.js";
   import { APPS_SCRIPT_CODE } from "../lib/appsScriptBackendCode.js";
 
   // --- State Variables ---
@@ -569,8 +569,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     let html = "";
     presentRounds.forEach((rName) => {
       const rMatches = roundsMap[rName].sort((a, b) => a.orden - b.orden);
+      const roundTitle = getKnockoutRoundTitle(rMatches.length) || rName;
       html += `<div class="bracket-round">
-        <div class="bracket-round-title">${rName}</div>`;
+        <div class="bracket-round-title">${roundTitle}</div>`;
 
       rMatches.forEach((m) => {
         const isWinA = m.estado === "Jugado" && m.ganador === "A";

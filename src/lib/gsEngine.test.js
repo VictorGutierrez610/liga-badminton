@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { BadmintonEngine } from './gsEngine.js';
+import { BadmintonEngine, getKnockoutRoundTitle } from './gsEngine.js';
 import { APPS_SCRIPT_CODE } from './appsScriptBackendCode.js';
 
 test('usa la URL activa de Apps Script como valor predeterminado', () => {
@@ -138,6 +138,15 @@ test('resuelve el formato mixto a partir de la ronda configurada', () => {
     () => instance.getEffectiveMatchFormat({ ...instance.jornadas[0], desde: 'Ronda desconocida' }, { ronda: 'Final' }),
     /ronda válida/
   );
+});
+
+test('muestra el título de eliminatoria según el número de partidos de la ronda', () => {
+  assert.equal(getKnockoutRoundTitle(1), 'Final');
+  assert.equal(getKnockoutRoundTitle(2), 'Semifinal');
+  assert.equal(getKnockoutRoundTitle(4), 'Cuartos de final');
+  assert.equal(getKnockoutRoundTitle(8), 'Octavos de final');
+  assert.equal(getKnockoutRoundTitle(16), 'Dieciseisavos de final');
+  assert.equal(getKnockoutRoundTitle(3), '');
 });
 
 test('conserva cambios locales cuando la hoja remota cambió desde la última carga', async () => {

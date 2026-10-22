@@ -12,6 +12,16 @@ const PREVIOUS_DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw
 
 export const RONDAS = ['Fase de grupos', 'Dieciseisavos', 'Octavos', 'Cuartos', 'Semifinal', 'Final'];
 
+export function getKnockoutRoundTitle(matchCount) {
+  return {
+    1: 'Final',
+    2: 'Semifinal',
+    4: 'Cuartos de final',
+    8: 'Octavos de final',
+    16: 'Dieciseisavos de final'
+  }[matchCount] || '';
+}
+
 export const CATEGORIAS = {
   Individual: ['IM-A', 'IF-A', 'IM-B', 'IF-B'],
   Dobles: ['DM', 'DF'],
