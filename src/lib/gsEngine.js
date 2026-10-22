@@ -614,6 +614,67 @@ export class BadmintonEngine {
     return true;
   }
 
+  async actualizarParejaInscrita(idJornada, categoria, idPareja, ids) {
+    if (!String(categoria || '').startsWith('D')) {
+      throw new Error('Solo se pueden modificar parejas en categorías de dobles.');
+    }
+    if (!Array.isArray(ids) || ids.length !== 2 || ids.some(id => !String(id || '').trim())) {
+      throw new Error('Selecciona dos jugadores para formar la pareja.');
+    }
+    const normalizedIds = ids.map(String);
+    if (new Set(normalizedIds).size !== 2) {
+      throw new Error('Los dos integrantes de la pareja deben ser distintos.');
+    }
+
+    const key = `${idJornada}_${categoria}`;
+    const inscritos = this.inscritos[key] || [];
+    const participant = inscritos.find(item => item.id === idPareja);
+    if (!participant) throw new Error('No se encuentra la pareja inscrita.');
+    const otherMembers = new Set(
+      inscritos
+        .filter(item => item.id !== idPareja)
+        .flatMap(item => (item.ids || []).map(String))
+    );
+    if (normalizedIds.some(id => otherMembers.has(id))) {
+      throw new Error('Un jugador no puede estar inscrito en más de una pareja de esta categoría.');
+    }
+    const oldIds = participant.ids || [];
+    if (
+      [...normalizedIds].sort().join('+') === [...oldIds].map(String).sort().join('+')
+    ) return false;
+
+    const oldKey = [...oldIds].map(String).sort().join('+');
+    const names = normalizedIds.map(id => this.getNombreSocio(id));
+    const updatedParticipants = inscritos.map(item =>
+      item.id === idPareja
+        ? { ...item, ids: normalizedIds, nombres: names }
+        : item
+    );
+    const updatedMatches = this.partidos.map(match => {
+      if (match.jornada !== idJornada || match.categoria !== categoria) return match;
+      const updatedMatch = { ...match };
+      ['A', 'B'].forEach(side => {
+        const sideIds = (match[`ids${side}`] || []).map(String).sort().join('+');
+        if (sideIds === oldKey) {
+          updatedMatch[`ids${side}`] = [...normalizedIds];
+          updatedMatch[`nom${side}`] = [...names];
+        }
+      });
+      return updatedMatch;
+    });
+    const snapshot = {
+      ...this.getStateSnapshot(),
+      inscritos: { ...this.inscritos, [key]: updatedParticipants },
+      partidos: updatedMatches
+    };
+
+    await this.persistFullStateOrLocal(snapshot);
+    this.inscritos[key] = updatedParticipants;
+    this.partidos = updatedMatches;
+    this.saveState();
+    return true;
+  }
+
   // --- Competiciones y Partidos ---
   async crearCompeticion(idJornada, categoria, cfg) {
     const key = `${idJornada}_${categoria}`;

@@ -48,6 +48,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   let selectedScoreMatch = null;
   let selectedParticipantsMatchId = null;
+  let selectedEditPairId = null;
 
   let mgrJornadaId = "";
   let mgrCategory = "";
@@ -170,8 +171,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (message !== undefined) {
       if (text) text.textContent = message;
       notice.dataset.kind = kind;
-      notice.style.color = kind === "error" ? "#f87171"
-        : kind === "warning" ? "#fbbf24"
+      notice.style.color = kind === "error" ? "var(--accent-red)"
+        : kind === "warning" ? "var(--accent-gold)"
           : kind === "success" ? "var(--accent-green)"
             : "var(--text-muted)";
       notice.style.display = message ? "block" : "none";
@@ -921,6 +922,82 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     selectedParticipantsMatchId = null;
   }
 
+  function openEditPairModal(participantId) {
+    if (!engine.isAdminSession()) return;
+    const participant = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory)
+      .participantes.find((item) => item.id === participantId);
+    if (!participant || !mgrCategory.startsWith("D")) return;
+    selectedEditPairId = participantId;
+
+    const occupiedByOthers = new Set(
+      engine.getCompeticionDetalle(mgrJornadaId, mgrCategory)
+        .participantes
+        .filter((item) => item.id !== participantId)
+        .flatMap((item) => (item.ids || []).map(String)),
+    );
+    const eligibleSocios = engine.getSocios().filter((socio) =>
+      (playerMatchesManagerCategory(socio) || participant.ids.map(String).includes(String(socio.id))) &&
+      !occupiedByOthers.has(String(socio.id)),
+    );
+    const optionsById = new Map(eligibleSocios.map((socio) => [
+      String(socio.id),
+      `${socio.nombre} ${socio.apellidos}`.trim(),
+    ]));
+    participant.ids.forEach((id, index) => {
+      if (!optionsById.has(String(id))) {
+        optionsById.set(String(id), participant.nombres[index] || String(id));
+      }
+    });
+    const options = [...optionsById].map(([id, name]) =>
+      `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`,
+    ).join("");
+    const selects = [
+      document.getElementById("editPairPlayer1"),
+      document.getElementById("editPairPlayer2"),
+    ];
+    selects.forEach((select, index) => {
+      select.innerHTML = options;
+      select.value = participant.ids[index] || "";
+    });
+    document.getElementById("editPairCurrentNames").textContent =
+      `Pareja actual: ${(participant.nombres || []).join(" / ")}`;
+    document.getElementById("editPairError").textContent = "";
+    document.getElementById("editPairModal").style.display = "flex";
+  }
+
+  function closeEditPairModal() {
+    document.getElementById("editPairModal").style.display = "none";
+    selectedEditPairId = null;
+  }
+
+  async function saveEditedPair(event) {
+    event.preventDefault();
+    if (!selectedEditPairId) return;
+    const ids = [
+      document.getElementById("editPairPlayer1").value,
+      document.getElementById("editPairPlayer2").value,
+    ];
+    const stopLoading = setButtonLoading(
+      document.getElementById("btnSaveEditPair"),
+      "Guardando…",
+    );
+    try {
+      await engine.actualizarParejaInscrita(
+        mgrJornadaId,
+        mgrCategory,
+        selectedEditPairId,
+        ids,
+      );
+      closeEditPairModal();
+      refreshCompetitionState();
+    } catch (error) {
+      document.getElementById("editPairError").textContent =
+        error instanceof Error ? error.message : String(error);
+    } finally {
+      stopLoading();
+    }
+  }
+
   async function saveMatchParticipants(event) {
     event.preventDefault();
     if (!selectedParticipantsMatchId) return;
@@ -1014,6 +1091,15 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   // --- Manager Logic ---
   function initManager() {
+    document
+      .getElementById("btnCloseEditPairModal")
+      ?.addEventListener("click", closeEditPairModal);
+    document
+      .getElementById("btnCancelEditPair")
+      ?.addEventListener("click", closeEditPairModal);
+    document
+      .getElementById("editPairForm")
+      ?.addEventListener("submit", saveEditedPair);
     document
       .getElementById("btnCloseMatchParticipantsModal")
       ?.addEventListener("click", closeMatchParticipantsModal);
@@ -1218,7 +1304,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           if (msg) {
             msg.style.color = result.sincronizacion
               ? "var(--accent-green)"
-              : "#fbbf24";
+              : "var(--accent-gold)";
             msg.textContent = result.sincronizacion
               ? `✅ Cuadro generado y ${result.sincronizacion.created} partido(s) añadido(s), ${result.sincronizacion.updated} actualizado(s) en Sheets.`
               : "⚠️ Cuadro generado localmente. Para guardarlo en Sheets, actualiza y vuelve a desplegar el código de Apps Script.";
@@ -1254,11 +1340,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
               : `✅ ${res.jornadas} jornada(s) y ${res.partidos} partido(s) guardados en Google Sheets.`;
           }
         } else if (msg) {
-          msg.style.color = "#fbbf24";
+          msg.style.color = "var(--accent-gold)";
           msg.textContent = "⚠️ Modo local: configura y verifica la conexión para guardar en Sheets.";
         }
       } catch (err) {
-        if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
+        if (msg) { msg.style.color = "var(--accent-red)"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
         stopLoading();
         renderDataSyncNotice();
@@ -1277,7 +1363,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Competición eliminada local y en Sheets."; }
         refreshCompetitionState();
       } catch (err) {
-        if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
+        if (msg) { msg.style.color = "var(--accent-red)"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
         stopLoading();
       }
@@ -1303,11 +1389,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             ? `✅ Sincronizado y verificado: ${res.jornadas} jornada(s) · ${res.partidos} partido(s).`
             : `✅ Sincronizado: ${res.jornadas} jornada(s) · ${res.partidos} partido(s) guardados.`;
         } else if (msg) {
-          msg.style.color = "#fbbf24";
+          msg.style.color = "var(--accent-gold)";
           msg.textContent = "⚠️ Sin conexión con Sheets. Los datos se guardan localmente.";
         }
       } catch (err) {
-        if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
+        if (msg) { msg.style.color = "var(--accent-red)"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
         stopLoading();
         renderDataSyncNotice();
@@ -1497,7 +1583,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       const msg = document.getElementById("compSheetsMsg");
       if (msg) {
         const isSynced = Boolean(remoteResult) && engine.lastSyncStatus === "synced";
-        msg.style.color = isSynced ? "var(--accent-green)" : "#fbbf24";
+        msg.style.color = isSynced ? "var(--accent-green)" : "var(--accent-gold)";
         msg.textContent = isSynced
           ? "✅ Competición y partidos guardados en Sheets."
           : `⚠️ Competición creada localmente; Sheets no confirmó el guardado.${engine.lastRemoteError ? ` ${engine.lastRemoteError}` : ""}`;
@@ -1853,12 +1939,19 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         detail.participantes.forEach((p) => {
           html += `
             <div class="glass-card flex-between inscrito-card">
-              <span style="font-size:14px; font-weight:600; line-height:1.4;">${escapeHtml(p.nombres.join(" / "))}<small class="text-muted" style="display:block; margin-top:4px; font-size:11px;">ID: ${escapeHtml(p.id)} · Participantes: ${escapeHtml((p.ids || []).join("|"))}</small></span>
-              ${!detail.competicion ? `<button class="btn btn-danger btn-sm remove-inscrito-btn" data-id="${p.id}" style="padding:2px 6px; font-size:10px;">Quitar ✕</button>` : ""}
+              <span class="inscrito-card-content" style="font-size:14px; font-weight:600; line-height:1.4;">${escapeHtml(p.nombres.join(" / "))}<small class="text-muted" style="display:block; margin-top:4px; font-size:11px;">ID: ${escapeHtml(p.id)} · Participantes: ${escapeHtml((p.ids || []).join("|"))}</small></span>
+              ${isDoubles && engine.isAdminSession() ? `<button class="btn btn-secondary btn-sm edit-pair-btn" data-id="${escapeHtml(p.id)}" type="button">Editar pareja ✏️</button>` : ""}
+              ${!detail.competicion ? `<button class="btn btn-danger btn-sm remove-inscrito-btn" data-id="${escapeHtml(p.id)}" style="padding:2px 6px; font-size:10px;">Quitar ✕</button>` : ""}
             </div>
           `;
         });
         container.innerHTML = html;
+
+        container.querySelectorAll(".edit-pair-btn").forEach((button) => {
+          button.addEventListener("click", () => {
+            openEditPairModal(button.getAttribute("data-id"));
+          });
+        });
 
         container.querySelectorAll(".remove-inscrito-btn").forEach((b) => {
           b.addEventListener("click", async () => {
@@ -1884,7 +1977,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     if (detail.competicion) {
       if (setupForm) setupForm.style.display = "none";
-      if (activeActions) activeActions.style.display = "block";
+      if (activeActions) activeActions.style.display = "grid";
       const groupKnockoutConfig = document.getElementById("groupKnockoutConfig");
       const generateBracketButton = document.getElementById("btnGenerateEliminatoria");
       const canGenerateGroupBracket = detail.competicion.sistema === "GRUPOS" &&

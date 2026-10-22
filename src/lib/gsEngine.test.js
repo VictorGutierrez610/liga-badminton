@@ -217,6 +217,84 @@ test('muestra el título de eliminatoria según el número de partidos de la ron
   assert.equal(getKnockoutRoundTitle(3), '');
 });
 
+test('actualiza una pareja inscrita en todos sus partidos y conserva los resultados', async () => {
+  const instance = createEngine({ sistema: 'GRUPOS' });
+  const participant = { id: '1+2', ids: ['1', '2'], nombres: ['Jugador Uno', 'Jugador Dos'] };
+  const groupMatch = {
+    id: 'group-1',
+    jornada: 'J1',
+    categoria: 'DM',
+    ronda: 'Fase de grupos',
+    idsA: ['1', '2'],
+    nomA: ['Jugador Uno', 'Jugador Dos'],
+    idsB: ['3', '4'],
+    nomB: ['Jugador Tres', 'Jugador Cuatro'],
+    sets: [[21, 18], [19, 21], [21, 17]],
+    estado: 'Jugado',
+    ganador: 'A',
+    registrado: '2026-10-18T12:00:00.000Z'
+  };
+  const knockoutMatch = {
+    ...groupMatch,
+    id: 'knockout-1',
+    ronda: 'Semifinal',
+    idsA: ['5', '6'],
+    nomA: ['Jugador Cinco', 'Jugador Seis'],
+    idsB: ['2', '1'],
+    nomB: ['Jugador Dos', 'Jugador Uno']
+  };
+  instance.inscritos['J1_DM'] = [
+    participant,
+    { id: '3+4', ids: ['3', '4'], nombres: ['Jugador Tres', 'Jugador Cuatro'] },
+    { id: '5+6', ids: ['5', '6'], nombres: ['Jugador Cinco', 'Jugador Seis'] }
+  ];
+  instance.socios = [
+    { id: '1', nombre: 'Jugador', apellidos: 'Uno' },
+    { id: '2', nombre: 'Jugador', apellidos: 'Dos' },
+    { id: '7', nombre: 'Jugador', apellidos: 'Siete' },
+    { id: '8', nombre: 'Jugador', apellidos: 'Ocho' }
+  ];
+  instance.partidos = [groupMatch, knockoutMatch];
+  let persistedSnapshot;
+  instance.persistFullStateOrLocal = async snapshot => { persistedSnapshot = snapshot; };
+
+  const changed = await instance.actualizarParejaInscrita('J1', 'DM', '1+2', ['7', '8']);
+
+  assert.equal(changed, true);
+  assert.deepEqual(instance.inscritos['J1_DM'][0], {
+    id: '1+2',
+    ids: ['7', '8'],
+    nombres: ['Jugador Siete', 'Jugador Ocho']
+  });
+  assert.deepEqual(instance.partidos.map(match => [match.idsA, match.idsB]), [
+    [['7', '8'], ['3', '4']],
+    [['5', '6'], ['7', '8']]
+  ]);
+  assert.deepEqual(instance.partidos.map(match => [match.nomA, match.nomB]), [
+    [['Jugador Siete', 'Jugador Ocho'], ['Jugador Tres', 'Jugador Cuatro']],
+    [['Jugador Cinco', 'Jugador Seis'], ['Jugador Siete', 'Jugador Ocho']]
+  ]);
+  assert.deepEqual(instance.partidos[0].sets, groupMatch.sets);
+  assert.equal(instance.partidos[0].estado, 'Jugado');
+  assert.equal(instance.partidos[0].ganador, 'A');
+  assert.equal(instance.partidos[0].registrado, groupMatch.registrado);
+  assert.deepEqual(persistedSnapshot.partidos, instance.partidos);
+});
+
+test('impide asignar a una pareja un jugador ya inscrito en otra pareja', async () => {
+  const instance = createEngine();
+  instance.inscritos['J1_DM'] = [
+    { id: '1+2', ids: ['1', '2'], nombres: ['Uno', 'Dos'] },
+    { id: '3+4', ids: ['3', '4'], nombres: ['Tres', 'Cuatro'] }
+  ];
+
+  await assert.rejects(
+    instance.actualizarParejaInscrita('J1', 'DM', '1+2', ['1', '3']),
+    /más de una pareja/
+  );
+  assert.deepEqual(instance.inscritos['J1_DM'][0].ids, ['1', '2']);
+});
+
 test('conserva cambios locales cuando la hoja remota cambió desde la última carga', async () => {
   const instance = createEngine();
   instance.remoteRevision = 'revision-base';

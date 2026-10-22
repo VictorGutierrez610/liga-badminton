@@ -5,7 +5,7 @@
   <div id="managerAdminNoticeBanner" class="glass-card" style="display:none; background:rgba(239, 68, 68, 0.15); border-color:rgba(239, 68, 68, 0.3); margin-bottom:16px;">
     <div class="flex-between flex-wrap gap-12">
       <div>
-        <h3 style="font-size:15px; font-weight:700; color:#f87171;">⚠️ Modo Espectador (Lectura)</h3>
+        <h3 style="font-size:15px; font-weight:700; color:var(--accent-red);">⚠️ Modo Espectador (Lectura)</h3>
         <p class="text-muted" style="font-size:13px; margin:0;">
           Para crear o borrar jornadas, inscribir jugadores y configurar competiciones debes autenticarte en el <b>Modo Administrador</b> introduciendo el código PIN.
         </p>
@@ -218,6 +218,34 @@
     <div id="managerMatchDetails" class="table-container">
       <!-- Populated by JS -->
     </div>
+  </div>
+</div>
+
+<div id="editPairModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 class="modal-title">Modificar pareja inscrita</h3>
+      <button type="button" class="modal-close" id="btnCloseEditPairModal" aria-label="Cerrar">✕</button>
+    </div>
+    <p id="editPairCurrentNames" class="text-muted" style="font-size:13px; margin-bottom:14px;"></p>
+    <form id="editPairForm">
+      <div class="form-group">
+        <label class="form-label" for="editPairPlayer1">Jugador 1</label>
+        <select id="editPairPlayer1" class="form-select" required></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="editPairPlayer2">Jugador 2</label>
+        <select id="editPairPlayer2" class="form-select" required></select>
+      </div>
+      <p class="text-muted" style="font-size:12px; margin-bottom:12px;">
+        El cambio se aplicará a todos los partidos de esta pareja. Los marcadores y resultados se conservarán.
+      </p>
+      <div id="editPairError" class="text-red text-center" style="font-size:13px; min-height:20px; margin-bottom:12px;"></div>
+      <div class="flex-gap" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="btnCancelEditPair">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="btnSaveEditPair">Guardar pareja</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -457,7 +485,7 @@
 
   .inscritos-list {
     display: grid;
-    gap: 9px;
+    gap: 12px;
     margin-top: 18px;
     max-height: 340px;
     overflow-y: auto;
@@ -470,17 +498,28 @@
     margin: 0;
     background: rgba(255,255,255,0.035);
     border: 1px solid rgba(196,181,253,0.12);
+    gap: 12px;
+  }
+
+  :global(.inscrito-card-content) {
+    min-width: 0;
+    flex: 1;
+  }
+
+  :global(.edit-pair-btn) {
+    flex: 0 0 auto;
   }
 
   .competition-actions {
     display: grid;
-    gap: 14px;
-    margin-top: 14px;
+    gap: 16px;
+    margin-top: 16px;
   }
 
   .competition-actions > button {
     width: 100%;
-    min-height: 40px;
+    min-height: 44px;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.12);
   }
 
   .sync-comp-btn.loading {
