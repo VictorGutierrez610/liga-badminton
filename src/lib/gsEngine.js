@@ -381,20 +381,10 @@ export class BadmintonEngine {
   }
 
   async crearJornada(data) {
-    if (!['UNO', 'TRES', 'MIXTO'].includes(data.formato)) {
-      throw new Error('Selecciona un formato de juego válido.');
-    }
+    this.validateJornadaFormat(data.formato, data.desde);
     const puntosSet = Number(data.puntosSet);
     if (!Number.isInteger(puntosSet) || puntosSet < 1 || puntosSet > 50) {
       throw new Error('Los puntos por set deben ser un entero entre 1 y 50.');
-    }
-    if (data.formato === 'MIXTO') {
-      const threshold = String(data.desde || '').trim().toLocaleLowerCase('es');
-      const hasValidThreshold = threshold.includes('eliminatoria') ||
-        Object.keys(ROUND_STAGE).some(round => threshold.includes(round.toLocaleLowerCase('es')));
-      if (!hasValidThreshold) {
-        throw new Error('Para el formato mixto, indica una ronda válida en "Desde".');
-      }
     }
 
     const id = data.id || 'J' + String(data.fecha).replace(/-/g, '');
@@ -417,6 +407,128 @@ export class BadmintonEngine {
     this.saveState();
     await this.callRemote('crearJornada', { jornada: nueva }, { strict: false });
     return nueva;
+  }
+
+  validateJornadaFormat(formato, desde) {
+    if (!['UNO', 'TRES', 'MIXTO'].includes(formato)) {
+      throw new Error('Selecciona un formato de juego válido.');
+    }
+    if (formato === 'MIXTO') {
+      const threshold = String(desde || '').trim().toLocaleLowerCase('es');
+      const hasValidThreshold = threshold.includes('eliminatoria') ||
+        Object.keys(ROUND_STAGE).some(round => threshold.includes(round.toLocaleLowerCase('es')));
+      if (!hasValidThreshold) {
+        throw new Error('Para el formato mixto, indica una ronda válida en "Desde".');
+      }
+    }
+  }
+
+  async actualizarFormatoJornada(idJornada, formato, desde) {
+    const jornada = this.jornadas.find(item => item.id === idJornada);
+    if (!jornada) throw new Error('No se encuentra la jornada.');
+    if (jornada.definitiva) throw new Error('No se puede modificar el formato de una jornada definitiva.');
+    this.validateJornadaFormat(formato, desde);
+
+    const updatedJornada = {
+      ...jornada,
+      formato,
+      desde: formato === 'MIXTO' ? desde : ''
+    };
+    const changedResults = [];
+    const updatedMatches = this.partidos.map(match => {
+      if (match.jornada !== idJornada) return match;
+      if (match.estado === 'Bye') return match;
+
+      const oldFormat = this.getEffectiveMatchFormat(jornada, match);
+      const newFormat = this.getEffectiveMatchFormat(updatedJornada, match);
+      const savedSets = Array.isArray(match.sets) ? match.sets.map(set => [...set]) : [];
+      let sets = savedSets;
+      if (newFormat === 'UNO') {
+        sets = savedSets.slice(0, 1);
+      } else if (oldFormat === 'UNO') {
+        sets = savedSets.slice(0, 1);
+      }
+
+      const updatedMatch = { ...match, sets };
+      if (newFormat === 'UNO') {
+        if (sets.length) {
+          try {
+            updatedMatch.ganador = this.validateScore(updatedMatch, sets, updatedJornada);
+            updatedMatch.estado = 'Jugado';
+          } catch {
+            updatedMatch.ganador = '';
+            updatedMatch.estado = 'Pendiente';
+          }
+        } else {
+          updatedMatch.ganador = '';
+          updatedMatch.estado = 'Pendiente';
+        }
+        if (updatedMatch.estado === 'Pendiente') updatedMatch.registrado = '';
+      } else if (newFormat === 'TRES' && sets.length < 2) {
+        updatedMatch.ganador = '';
+        updatedMatch.estado = 'Pendiente';
+        updatedMatch.registrado = '';
+      } else if (newFormat === 'TRES' && sets.length >= 2) {
+        try {
+          updatedMatch.ganador = this.validateScore(updatedMatch, sets, updatedJornada);
+          updatedMatch.estado = 'Jugado';
+        } catch {
+          updatedMatch.ganador = '';
+          updatedMatch.estado = 'Pendiente';
+          updatedMatch.registrado = '';
+        }
+      }
+
+      const resultChanged = updatedMatch.estado !== match.estado ||
+        updatedMatch.ganador !== match.ganador;
+      const groupScoreChanged = match.ronda === 'Fase de grupos' &&
+        JSON.stringify(updatedMatch.sets) !== JSON.stringify(match.sets || []);
+      if (resultChanged || groupScoreChanged) {
+        changedResults.push({ match, updatedMatch });
+      }
+      return updatedMatch;
+    });
+
+    const roundsToRemove = new Map();
+    const roundsToResume = new Map();
+    changedResults.forEach(({ match }) => {
+      const key = `${match.jornada}_${match.categoria}`;
+      const invalidated = this.getRoundsToInvalidate(match);
+      if (invalidated.size) {
+        if (!roundsToRemove.has(key)) roundsToRemove.set(key, new Set());
+        invalidated.forEach(round => roundsToRemove.get(key).add(round));
+      }
+      if (match.ronda !== 'Fase de grupos' && this.nextKnockoutRound(match.ronda)) {
+        const previous = roundsToResume.get(key);
+        const stage = ROUND_STAGE[match.ronda];
+        if (previous === undefined || stage < previous.stage) {
+          roundsToResume.set(key, { categoria: match.categoria, ronda: match.ronda, stage });
+        }
+      }
+    });
+
+    const matchesToSave = updatedMatches.filter(match => {
+      const rounds = roundsToRemove.get(`${match.jornada}_${match.categoria}`);
+      return !rounds?.has(match.ronda);
+    });
+    const jornadasToSave = this.jornadas.map(item =>
+      item.id === idJornada ? updatedJornada : item
+    );
+    await this.persistFullStateOrLocal({
+      ...this.getStateSnapshot(),
+      jornadas: jornadasToSave,
+      partidos: matchesToSave
+    });
+
+    this.jornadas = jornadasToSave;
+    this.partidos = matchesToSave;
+    this.saveState();
+
+    for (const [key, resume] of roundsToResume) {
+      if (!roundsToRemove.has(key)) continue;
+      await this.advanceKnockoutBracket(idJornada, resume.categoria, resume.ronda);
+    }
+    return true;
   }
 
   async guardarJornadaDefinitiva(idJornada) {
@@ -1188,7 +1300,7 @@ export class BadmintonEngine {
     return matchStage >= configuredStage ? 'TRES' : 'UNO';
   }
 
-  validateScore(match, sets) {
+  validateScore(match, sets, jornadaOverride) {
     if (!Array.isArray(sets) || sets.length < 1 || sets.length > 3) {
       throw new Error('Introduce entre uno y tres sets completos.');
     }
@@ -1196,7 +1308,7 @@ export class BadmintonEngine {
       throw new Error('No se puede puntuar un enfrentamiento sin dos participantes.');
     }
 
-    const jornada = this.jornadas.find(item => item.id === match.jornada);
+    const jornada = jornadaOverride || this.jornadas.find(item => item.id === match.jornada);
     if (!jornada) throw new Error('No se encuentra la jornada del partido.');
     const target = Number(jornada.puntosSet);
     if (!Number.isInteger(target) || target < 1 || target > 50) {

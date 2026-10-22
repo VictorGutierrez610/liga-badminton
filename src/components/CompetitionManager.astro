@@ -41,7 +41,7 @@
             <th>ID</th>
             <th class="text-left">Fecha</th>
             <th>Modalidad</th>
-            <th>Formato Base</th>
+            <th>Formato</th>
             <th>Desde</th>
             <th>Pts / Set</th>
             <th>Ganar por 2</th>
@@ -271,7 +271,7 @@
 
     <form id="scoreEntryForm">
       <div class="score-sets-grid" style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
-        <div class="flex-between glass-card" style="padding:10px 14px; margin:0;">
+        <div id="set1Row" class="flex-between glass-card" style="padding:10px 14px; margin:0;">
           <span style="font-weight:600; font-size:14px;">Set 1</span>
           <div class="flex-gap">
             <input type="number" id="set1A" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="0" />
@@ -279,7 +279,7 @@
             <input type="number" id="set1B" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="0" />
           </div>
         </div>
-        <div class="flex-between glass-card" style="padding:10px 14px; margin:0;">
+        <div id="set2Row" class="flex-between glass-card" style="padding:10px 14px; margin:0;">
           <span style="font-weight:600; font-size:14px;">Set 2</span>
           <div class="flex-gap">
             <input type="number" id="set2A" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="-" />
@@ -287,7 +287,7 @@
             <input type="number" id="set2B" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="-" />
           </div>
         </div>
-        <div class="flex-between glass-card" style="padding:10px 14px; margin:0;">
+        <div id="set3Row" class="flex-between glass-card" style="padding:10px 14px; margin:0;">
           <span style="font-weight:600; font-size:14px;">Set 3 (si aplica)</span>
           <div class="flex-gap">
             <input type="number" id="set3A" min="0" max="50" class="form-control text-center" style="width:70px;" placeholder="-" />
@@ -474,7 +474,7 @@
 
   .competition-actions {
     display: grid;
-    gap: 10px;
+    gap: 14px;
     margin-top: 14px;
   }
 

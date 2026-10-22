@@ -819,6 +819,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     const m = engine.partidos.find((match) => match.id === matchId);
     if (!m) return;
+    const jornada = engine.jornadas.find((item) => item.id === m.jornada);
+    if (!jornada) return;
 
     selectedScoreMatch = m;
 
@@ -830,16 +832,27 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       `${formatShortDate(m.fecha)} · ${m.categoria} · ${m.ronda}${m.grupo ? ` · Grupo ${m.grupo}` : ""}`;
     document.getElementById("scoreModalError").textContent = "";
 
+    let format;
+    try {
+      format = engine.getEffectiveMatchFormat(jornada, m);
+    } catch (error) {
+      document.getElementById("scoreModalError").textContent =
+        error instanceof Error ? error.message : String(error);
+      return;
+    }
+    document.getElementById("set2Row").style.display = format === "TRES" ? "" : "none";
+    document.getElementById("set3Row").style.display = format === "TRES" ? "" : "none";
+
     const s1 = m.sets[0] || ["", ""];
     const s2 = m.sets[1] || ["", ""];
     const s3 = m.sets[2] || ["", ""];
 
     document.getElementById("set1A").value = s1[0] !== undefined ? s1[0] : "";
     document.getElementById("set1B").value = s1[1] !== undefined ? s1[1] : "";
-    document.getElementById("set2A").value = s2[0] !== undefined ? s2[0] : "";
-    document.getElementById("set2B").value = s2[1] !== undefined ? s2[1] : "";
-    document.getElementById("set3A").value = s3[0] !== undefined ? s3[0] : "";
-    document.getElementById("set3B").value = s3[1] !== undefined ? s3[1] : "";
+    document.getElementById("set2A").value = format === "TRES" && s2[0] !== undefined ? s2[0] : "";
+    document.getElementById("set2B").value = format === "TRES" && s2[1] !== undefined ? s2[1] : "";
+    document.getElementById("set3A").value = format === "TRES" && s3[0] !== undefined ? s3[0] : "";
+    document.getElementById("set3B").value = format === "TRES" && s3[1] !== undefined ? s3[1] : "";
 
     const btnDelete = document.getElementById("btnDeleteMatchScore");
     if (btnDelete)
@@ -919,7 +932,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const s3A = document.getElementById("set3A").value;
     const s3B = document.getElementById("set3B").value;
 
-    const scoreFields = [[s1A, s1B], [s2A, s2B], [s3A, s3B]];
+    const maxSets = document.getElementById("set2Row").style.display === "none" ? 1 : 3;
+    const scoreFields = [[s1A, s1B], [s2A, s2B], [s3A, s3B]].slice(0, maxSets);
     const incompleteSet = scoreFields.find(([scoreA, scoreB]) =>
       (scoreA === "") !== (scoreB === ""),
     );
@@ -929,10 +943,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       return;
     }
 
-    const sets = [];
-    if (s1A !== "" && s1B !== "") sets.push([Number(s1A), Number(s1B)]);
-    if (s2A !== "" && s2B !== "") sets.push([Number(s2A), Number(s2B)]);
-    if (s3A !== "" && s3B !== "") sets.push([Number(s3A), Number(s3B)]);
+    const sets = scoreFields
+      .filter(([scoreA, scoreB]) => scoreA !== "" && scoreB !== "")
+      .map(([scoreA, scoreB]) => [Number(scoreA), Number(scoreB)]);
 
     if (sets.length === 0) {
       document.getElementById("scoreModalError").textContent =
@@ -1049,7 +1062,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const modalidad = document.getElementById("newJornadaModalidad").value;
         const formato = document.getElementById("newJornadaFormato").value;
         const puntosSet = document.getElementById("newJornadaPuntos").value;
-        const desde = (document.getElementById("newJornadaDesde") as HTMLInputElement).value.trim();
+        const desde = (document.getElementById("newJornadaDesde") as HTMLSelectElement).value.trim();
         const ganarPor2 = (document.getElementById("newJornadaGanarPor2") as HTMLInputElement).checked;
 
         try {
@@ -1592,12 +1605,36 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       tableBody.innerHTML = "";
       jornadas.forEach((j) => {
         const tr = document.createElement("tr");
+        const canEditFormat = isAdmin && !j.definitiva;
+        const desdeNormalizado = String(j.desde || "").toLowerCase();
+        const desdeSeleccionado = desdeNormalizado.includes("eliminatoria")
+          ? "Fase eliminatoria"
+          : ["Dieciseisavos", "Octavos", "Cuartos", "Semifinal", "Final"].find((ronda) =>
+              desdeNormalizado.includes(ronda.toLowerCase()),
+            ) || "Fase eliminatoria";
+        const formatControl = canEditFormat
+          ? `<select class="form-select jornada-format-select" data-id="${escapeHtml(j.id)}" aria-label="Formato de la jornada ${escapeHtml(j.id)}">
+              <option value="UNO" ${j.formato === "UNO" ? "selected" : ""}>UNO · 1 set</option>
+              <option value="TRES" ${j.formato === "TRES" ? "selected" : ""}>TRES · Mejor de 3</option>
+              <option value="MIXTO" ${j.formato === "MIXTO" ? "selected" : ""}>MIXTO</option>
+            </select>`
+          : escapeHtml(j.formato);
+        const desdeControl = canEditFormat
+          ? `<select class="form-select jornada-desde-select" data-id="${escapeHtml(j.id)}" aria-label="Ronda de inicio del formato mixto" style="${j.formato === "MIXTO" ? "" : "display:none;"}">
+              <option value="Fase eliminatoria" ${desdeSeleccionado === "Fase eliminatoria" ? "selected" : ""}>Fase eliminatoria</option>
+              <option value="Dieciseisavos" ${desdeSeleccionado === "Dieciseisavos" ? "selected" : ""}>Dieciseisavos</option>
+              <option value="Octavos" ${desdeSeleccionado === "Octavos" ? "selected" : ""}>Octavos</option>
+              <option value="Cuartos" ${desdeSeleccionado === "Cuartos" ? "selected" : ""}>Cuartos</option>
+              <option value="Semifinal" ${desdeSeleccionado === "Semifinal" ? "selected" : ""}>Semifinal</option>
+              <option value="Final" ${desdeSeleccionado === "Final" ? "selected" : ""}>Final</option>
+            </select>`
+          : escapeHtml(j.desde || "—");
         tr.innerHTML = `
           <td>${escapeHtml(j.id)}</td>
           <td class="text-left"><b>${formatShortDate(j.fecha)}</b></td>
           <td>${escapeHtml(j.modalidad)}</td>
-          <td>${escapeHtml(j.formato)}</td>
-          <td>${escapeHtml(j.desde || "—")}</td>
+          <td>${formatControl}</td>
+          <td>${desdeControl}</td>
           <td>${j.puntosSet}</td>
           <td>${j.ganarPor2 ? "Sí" : "No"}</td>
           <td>${j.partidos}</td>
@@ -1606,13 +1643,42 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             ${
               !j.definitiva
                 ? isAdmin
-                  ? `<div class="jornada-actions"><button class="btn btn-secondary btn-sm finalize-jornada-btn" data-id="${j.id}">Guardar Definitiva</button><button class="btn btn-danger btn-sm delete-jornada-btn" data-id="${j.id}">Borrar</button></div>`
+                  ? `<div class="jornada-actions"><button class="btn btn-secondary btn-sm save-jornada-format-btn" data-id="${escapeHtml(j.id)}">Guardar formato</button><button class="btn btn-secondary btn-sm finalize-jornada-btn" data-id="${escapeHtml(j.id)}">Guardar Definitiva</button><button class="btn btn-danger btn-sm delete-jornada-btn" data-id="${escapeHtml(j.id)}">Borrar</button></div>`
                   : `<span class="text-muted" style="font-size:12px;">En Curso (Lectura)</span>`
                 : "Definitiva"
             }
           </td>
         `;
         tableBody.appendChild(tr);
+      });
+
+      tableBody.querySelectorAll(".jornada-format-select").forEach((select) => {
+        select.addEventListener("change", () => {
+          const row = select.closest("tr");
+          const desde = row?.querySelector(".jornada-desde-select");
+          if (desde) desde.style.display = select.value === "MIXTO" ? "" : "none";
+        });
+      });
+
+      tableBody.querySelectorAll(".save-jornada-format-btn").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const row = button.closest("tr");
+          const formato = row?.querySelector(".jornada-format-select")?.value;
+          const desde = row?.querySelector(".jornada-desde-select")?.value;
+          if (!formato) return;
+          button.disabled = true;
+          try {
+            await engine.actualizarFormatoJornada(
+              button.getAttribute("data-id"),
+              formato,
+              desde,
+            );
+            refreshCompetitionState();
+          } catch (error) {
+            alert(`No se pudo actualizar el formato de la jornada: ${error.message || error}`);
+            button.disabled = false;
+          }
+        });
       });
 
       // Actions

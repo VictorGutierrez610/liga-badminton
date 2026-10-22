@@ -140,6 +140,74 @@ test('resuelve el formato mixto a partir de la ronda configurada', () => {
   );
 });
 
+test('al cambiar de un set a mixto conserva el primer set y reabre los partidos que pasan a mejor de tres', async () => {
+  const instance = createEngine({ formato: 'UNO', sistema: 'GRUPOS' });
+  instance.remoteRevision = 'revision-base';
+  instance.partidos = [
+    {
+      id: 'group-1', jornada: 'J1', categoria: 'IM-A', ronda: 'Fase de grupos',
+      grupo: 'A', orden: 1, estado: 'Jugado', ganador: 'A',
+      idsA: ['1'], idsB: ['2'], sets: [[15, 10]]
+    },
+    {
+      id: 'quarter-1', jornada: 'J1', categoria: 'IM-A', ronda: 'Cuartos',
+      orden: 1, estado: 'Jugado', ganador: 'A',
+      idsA: ['1'], idsB: ['2'], sets: [[15, 10]]
+    },
+    {
+      id: 'semi-1', jornada: 'J1', categoria: 'IM-A', ronda: 'Semifinal',
+      orden: 1, estado: 'Pendiente', ganador: '',
+      idsA: ['1'], idsB: ['3'], sets: []
+    }
+  ];
+
+  await instance.actualizarFormatoJornada('J1', 'MIXTO', 'Cuartos');
+
+  const groupMatch = instance.partidos.find(match => match.id === 'group-1');
+  const quarter = instance.partidos.find(match => match.id === 'quarter-1');
+  assert.equal(instance.jornadas[0].formato, 'MIXTO');
+  assert.equal(instance.jornadas[0].desde, 'Cuartos');
+  assert.equal(groupMatch.estado, 'Jugado');
+  assert.deepEqual(groupMatch.sets, [[15, 10]]);
+  assert.equal(quarter.estado, 'Pendiente');
+  assert.equal(quarter.ganador, '');
+  assert.deepEqual(quarter.sets, [[15, 10]]);
+  assert.equal(instance.partidos.some(match => match.id === 'semi-1'), false);
+  assert.equal(instance.lastSyncedSnapshot.jornadas[0].formato, 'MIXTO');
+});
+
+test('al reducir una eliminatoria a un set conserva el primer marcador y recalcula el ganador', async () => {
+  const instance = createEngine({ formato: 'TRES', sistema: 'ELIM' });
+  instance.remoteRevision = 'revision-base';
+  const quarterfinals = Array.from({ length: 4 }, (_, index) => ({
+    id: `qf-${index + 1}`,
+    jornada: 'J1',
+    categoria: 'IM-A',
+    ronda: 'Cuartos',
+    orden: index + 1,
+    estado: 'Jugado',
+    ganador: 'A',
+    idsA: [String(index * 2 + 1)],
+    idsB: [String(index * 2 + 2)],
+    sets: index === 0 ? [[10, 15], [15, 10], [15, 12]] : [[15, 10], [15, 12]]
+  }));
+  instance.partidos = [
+    ...quarterfinals,
+    { id: 'semi-1', jornada: 'J1', categoria: 'IM-A', ronda: 'Semifinal', orden: 1, estado: 'Jugado', ganador: 'A', idsA: ['1'], idsB: ['5'], sets: [[15, 10], [15, 12]] },
+    { id: 'semi-2', jornada: 'J1', categoria: 'IM-A', ronda: 'Semifinal', orden: 2, estado: 'Jugado', ganador: 'A', idsA: ['9'], idsB: ['13'], sets: [[15, 10], [15, 12]] },
+    { id: 'final-1', jornada: 'J1', categoria: 'IM-A', ronda: 'Final', orden: 1, estado: 'Pendiente', ganador: '', idsA: ['1'], idsB: ['9'], sets: [] }
+  ];
+
+  await instance.actualizarFormatoJornada('J1', 'UNO');
+
+  const firstQuarterfinal = instance.partidos.find(match => match.id === 'qf-1');
+  assert.deepEqual(firstQuarterfinal.sets, [[10, 15]]);
+  assert.equal(firstQuarterfinal.ganador, 'B');
+  assert.equal(firstQuarterfinal.estado, 'Jugado');
+  assert.equal(instance.partidos.filter(match => match.ronda === 'Semifinal').length, 2);
+  assert.equal(instance.partidos.some(match => match.ronda === 'Final'), false);
+});
+
 test('muestra el título de eliminatoria según el número de partidos de la ronda', () => {
   assert.equal(getKnockoutRoundTitle(1), 'Final');
   assert.equal(getKnockoutRoundTitle(2), 'Semifinal');
