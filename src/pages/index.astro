@@ -111,6 +111,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       e.preventDefault();
       const entered = pinInput ? pinInput.value : "";
       if (errBox) errBox.textContent = "";
+      const stopLoading = setButtonLoading(
+        form.querySelector('button[type="submit"]'),
+        "Verificando…",
+      );
 
       try {
         engine.verifyAndLoginAdmin(entered);
@@ -120,6 +124,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         alert("¡Bienvenido! Has accedido correctamente al Modo Administrador.");
       } catch (err) {
         if (errBox) errBox.textContent = err.message || String(err);
+      } finally {
+        stopLoading();
       }
     });
   }
@@ -219,6 +225,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document.getElementById("btnKeepLocalAndSync")?.addEventListener("click", async () => {
       const confirmedOverwrite = Boolean(engine.remoteConflictRevision);
       if (!confirmRemoteOverwrite()) return;
+      const stopLoading = setButtonLoading(
+        document.getElementById("btnKeepLocalAndSync"),
+        "Sincronizando…",
+      );
       try {
         await engine.syncAllToSheets(undefined, { confirmedOverwrite });
         refreshCompetitionState();
@@ -228,11 +238,17 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           error instanceof Error ? error.message : String(error),
           "error",
         );
+      } finally {
+        stopLoading();
       }
     });
 
     document.getElementById("btnDiscardLocalAndReload")?.addEventListener("click", async () => {
       if (!confirm("¿Descartar todos los cambios locales pendientes y reemplazarlos por los datos de Google Sheets?")) return;
+      const stopLoading = setButtonLoading(
+        document.getElementById("btnDiscardLocalAndReload"),
+        "Cargando…",
+      );
       try {
         await engine.fetchAllFromSheets({ discardLocal: true });
         refreshCompetitionState();
@@ -242,6 +258,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           error instanceof Error ? error.message : String(error),
           "error",
         );
+      } finally {
+        stopLoading();
       }
     });
   }
@@ -569,7 +587,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     let html = "";
     presentRounds.forEach((rName) => {
       const rMatches = roundsMap[rName].sort((a, b) => a.orden - b.orden);
-      const roundTitle = getKnockoutRoundTitle(rMatches.length) || rName;
+      const roundMatchCount = rMatches.filter((match) => match.estado !== "Bye").length;
+      const roundTitle = getKnockoutRoundTitle(roundMatchCount) || rName;
       html += `<div class="bracket-round">
         <div class="bracket-round-title">${roundTitle}</div>`;
 
@@ -907,6 +926,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (!selectedParticipantsMatchId) return;
     const participantAId = document.getElementById("matchParticipantA").value;
     const participantBId = document.getElementById("matchParticipantB").value;
+    const stopLoading = setButtonLoading(
+      document.getElementById("btnSaveMatchParticipants"),
+      "Guardando…",
+    );
     try {
       await engine.actualizarParticipantesPartido(
         selectedParticipantsMatchId,
@@ -918,6 +941,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     } catch (error) {
       document.getElementById("matchParticipantsError").textContent =
         error instanceof Error ? error.message : String(error);
+    } finally {
+      stopLoading();
     }
   }
 
@@ -953,6 +978,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       return;
     }
 
+    const stopLoading = setButtonLoading(
+      document.getElementById("btnSaveScoreModal"),
+      "Guardando…",
+    );
     try {
       await engine.guardarResultado(selectedScoreMatch.id, sets);
       closeScoreModal();
@@ -960,11 +989,17 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     } catch (err) {
       document.getElementById("scoreModalError").textContent =
         err.message || String(err);
+    } finally {
+      stopLoading();
     }
   }
 
   async function deleteScoreModal() {
     if (!selectedScoreMatch) return;
+    const stopLoading = setButtonLoading(
+      document.getElementById("btnDeleteMatchScore"),
+      "Borrando…",
+    );
     try {
       await engine.borrarResultado(selectedScoreMatch.id);
       closeScoreModal();
@@ -972,6 +1007,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     } catch (err) {
       document.getElementById("scoreModalError").textContent =
         err.message || String(err);
+    } finally {
+      stopLoading();
     }
   }
 
@@ -1064,6 +1101,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const puntosSet = document.getElementById("newJornadaPuntos").value;
         const desde = (document.getElementById("newJornadaDesde") as HTMLSelectElement).value.trim();
         const ganarPor2 = (document.getElementById("newJornadaGanarPor2") as HTMLInputElement).checked;
+        const stopLoading = setButtonLoading(
+          (e.currentTarget as HTMLFormElement).querySelector('button[type="submit"]'),
+          "Creando jornada…",
+        );
 
         try {
           await engine.crearJornada({ fecha, modalidad, formato, puntosSet, desde, ganarPor2 });
@@ -1071,6 +1112,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           refreshCompetitionState();
         } catch (err) {
           document.getElementById("newJornadaError").textContent = err.message;
+        } finally {
+          stopLoading();
         }
       });
 
@@ -1153,19 +1196,23 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     document
       .getElementById("btnGenerateEliminatoria")
-      ?.addEventListener("click", async () => {
+      ?.addEventListener("click", async (event) => {
         const errEl = document.getElementById("compSetupError");
         if (errEl) errEl.textContent = "";
+        const stopLoading = setButtonLoading(
+          event.currentTarget as HTMLButtonElement,
+          "Generando cuadro…",
+        );
 
         try {
-        const cfg = { metodoCruces: groupKnockoutAssignmentMode };
-        if (groupKnockoutAssignmentMode === "MANUAL") {
-          cfg.cruces = getManualPairings(
-            "groupManualKnockoutPairings",
-            getQualifiedGroupEntries().length,
-          );
-        }
-        const result = await engine.generarCuadroEliminatorio(mgrJornadaId, mgrCategory, cfg);
+          const cfg = { metodoCruces: groupKnockoutAssignmentMode };
+          if (groupKnockoutAssignmentMode === "MANUAL") {
+            cfg.cruces = getManualPairings(
+              "groupManualKnockoutPairings",
+              getQualifiedGroupEntries().length,
+            );
+          }
+          const result = await engine.generarCuadroEliminatorio(mgrJornadaId, mgrCategory, cfg);
           refreshCompetitionState();
           const msg = document.getElementById("compSheetsMsg");
           if (msg) {
@@ -1180,6 +1227,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           if (errEl) {
             errEl.textContent = `${err.message || String(err)}. Comprueba que el código actualizado de Apps Script esté desplegado y que la URL configurada apunte a esa implementación.`;
           }
+        } finally {
+          stopLoading();
         }
       });
 
@@ -1187,7 +1236,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document.getElementById("btnSaveCompSheets")?.addEventListener("click", async () => {
       const btn = document.getElementById("btnSaveCompSheets");
       const msg = document.getElementById("compSheetsMsg");
-      if (btn) btn.classList.add("loading");
+      const stopLoading = setButtonLoading(btn, "Guardando…");
       if (msg) { msg.style.color = "var(--text-muted)"; msg.textContent = "Guardando en Google Sheets…"; }
       try {
         if (!confirmRemoteOverwrite()) {
@@ -1211,20 +1260,26 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       } catch (err) {
         if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
-        if (btn) btn.classList.remove("loading");
+        stopLoading();
         renderDataSyncNotice();
       }
     });
 
-    document.getElementById("btnResetCompetition")?.addEventListener("click", async () => {
+    document.getElementById("btnResetCompetition")?.addEventListener("click", async (event) => {
       if (!confirm("¿Borrar la competición y sus partidos tanto local como en Google Sheets?")) return;
       const msg = document.getElementById("compSheetsMsg");
+      const stopLoading = setButtonLoading(
+        event.currentTarget as HTMLButtonElement,
+        "Borrando competición…",
+      );
       try {
         await engine.borrarCompeticion(mgrJornadaId, mgrCategory);
         if (msg) { msg.style.color = "var(--accent-green)"; msg.textContent = "✅ Competición eliminada local y en Sheets."; }
         refreshCompetitionState();
       } catch (err) {
         if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
+      } finally {
+        stopLoading();
       }
     });
 
@@ -1232,7 +1287,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document.getElementById("btnSyncAllSheets")?.addEventListener("click", async () => {
       const btn = document.getElementById("btnSyncAllSheets");
       const msg = document.getElementById("syncAllMsg");
-      if (btn) { btn.disabled = true; btn.textContent = "⏳ Sincronizando…"; }
+      const stopLoading = setButtonLoading(btn, "Sincronizando…");
       if (msg) { msg.style.display = "block"; msg.style.color = "var(--text-muted)"; msg.textContent = "Volcando datos a Google Sheets…"; }
       try {
         if (!confirmRemoteOverwrite()) {
@@ -1254,7 +1309,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       } catch (err) {
         if (msg) { msg.style.color = "#f87171"; msg.textContent = "❌ Error: " + (err.message || err); }
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = "☁️ Sincronizar Todo con Sheets"; }
+        stopLoading();
         renderDataSyncNotice();
       }
     });
@@ -1355,7 +1410,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     });
   }
 
-  async function handleAddParticipant() {
+  async function handleAddParticipant(event) {
     const isDoubles = mgrCategory.startsWith("D");
     const ids = [];
     const errEl = document.getElementById("inscriptionFormError");
@@ -1382,6 +1437,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       ids.push(selectedPlayerP1.id, selectedPlayerP2.id);
     }
 
+    const stopLoading = setButtonLoading(
+      event.currentTarget as HTMLButtonElement,
+      "Añadiendo inscrito…",
+    );
     try {
       await engine.anadirInscrito(mgrJornadaId, mgrCategory, ids);
       // Reset
@@ -1394,10 +1453,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       refreshCompetitionState();
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
+    } finally {
+      stopLoading();
     }
   }
 
-  async function handleCreateCompetition() {
+  async function handleCreateCompetition(event) {
     const errEl = document.getElementById("compSetupError");
     if (errEl) errEl.textContent = "";
 
@@ -1426,6 +1487,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       }
     }
 
+    const stopLoading = setButtonLoading(
+      event.currentTarget as HTMLButtonElement,
+      "Creando competición…",
+    );
     try {
       const remoteResult = await engine.crearCompeticion(mgrJornadaId, mgrCategory, cfg);
       refreshCompetitionState();
@@ -1439,6 +1504,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       }
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
+    } finally {
+      stopLoading();
     }
   }
 
@@ -1614,8 +1681,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             ) || "Fase eliminatoria";
         const formatControl = canEditFormat
           ? `<select class="form-select jornada-format-select" data-id="${escapeHtml(j.id)}" aria-label="Formato de la jornada ${escapeHtml(j.id)}">
-              <option value="UNO" ${j.formato === "UNO" ? "selected" : ""}>UNO · 1 set</option>
-              <option value="TRES" ${j.formato === "TRES" ? "selected" : ""}>TRES · Mejor de 3</option>
+              <option value="UNO" ${j.formato === "UNO" ? "selected" : ""}>UNO (1 set)</option>
+              <option value="TRES" ${j.formato === "TRES" ? "selected" : ""}>TRES (Mejor de 3)</option>
               <option value="MIXTO" ${j.formato === "MIXTO" ? "selected" : ""}>MIXTO</option>
             </select>`
           : escapeHtml(j.formato);
@@ -1666,7 +1733,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           const formato = row?.querySelector(".jornada-format-select")?.value;
           const desde = row?.querySelector(".jornada-desde-select")?.value;
           if (!formato) return;
-          button.disabled = true;
+          const stopLoading = setButtonLoading(button, "Guardando…");
           try {
             await engine.actualizarFormatoJornada(
               button.getAttribute("data-id"),
@@ -1676,7 +1743,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             refreshCompetitionState();
           } catch (error) {
             alert(`No se pudo actualizar el formato de la jornada: ${error.message || error}`);
-            button.disabled = false;
+          } finally {
+            stopLoading();
           }
         });
       });
@@ -1684,11 +1752,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       // Actions
       tableBody.querySelectorAll(".finalize-jornada-btn").forEach((b) => {
         b.addEventListener("click", async () => {
+          const stopLoading = setButtonLoading(b, "Guardando…");
           try {
             await engine.guardarJornadaDefinitiva(b.getAttribute("data-id"));
             refreshCompetitionState();
           } catch (error) {
             alert(`No se pudo guardar la jornada: ${error.message || error}`);
+          } finally {
+            stopLoading();
           }
         });
       });
@@ -1700,11 +1771,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
               "¿Seguro que deseas borrar esta jornada y todos sus partidos?",
             )
           ) {
+            const stopLoading = setButtonLoading(b, "Borrando…");
             try {
               await engine.borrarJornada(b.getAttribute("data-id"));
               refreshCompetitionState();
             } catch (error) {
               alert(`No se pudo borrar la jornada: ${error.message || error}`);
+            } finally {
+              stopLoading();
             }
           }
         });
@@ -1788,12 +1862,15 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
         container.querySelectorAll(".remove-inscrito-btn").forEach((b) => {
           b.addEventListener("click", async () => {
+            const stopLoading = setButtonLoading(b, "Quitando…");
             try {
               await engine.quitarInscrito(mgrJornadaId, mgrCategory, b.getAttribute("data-id"));
               refreshCompetitionState();
             } catch (error) {
               const errorEl = document.getElementById("inscriptionFormError");
               if (errorEl) errorEl.textContent = `No se pudo quitar el inscrito: ${error instanceof Error ? error.message : String(error)}`;
+            } finally {
+              stopLoading();
             }
           });
         });
@@ -1884,6 +1961,15 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       return;
     }
 
+    const knockoutRoundCounts = new Map();
+    matches.forEach((match) => {
+      if (match.ronda === "Fase de grupos" || match.estado === "Bye") return;
+      knockoutRoundCounts.set(
+        match.ronda,
+        (knockoutRoundCounts.get(match.ronda) || 0) + 1,
+      );
+    });
+
     const rows = visibleMatches.map((match) => {
       const teamA = (match.nomA || []).join(" / ");
       const teamB = (match.nomB || []).join(" / ");
@@ -1891,13 +1977,16 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       const idsB = (match.idsB || []).join("|");
       const score = (match.sets || []).map((set) => `${set[0]}-${set[1]}`).join(", ") || "—";
       const winner = match.ganador === "A" ? teamA : match.ganador === "B" ? teamB : "—";
+      const roundTitle = match.ronda === "Fase de grupos"
+        ? match.ronda
+        : getKnockoutRoundTitle(knockoutRoundCounts.get(match.ronda) || 0) || match.ronda;
       const canEnterScore =
         match.estado !== "Bye" && (match.idsA || []).length > 0 && (match.idsB || []).length > 0;
       return `<tr>
         <td>${escapeHtml(match.id)}</td>
         <td>${formatShortDate(match.fecha)}</td>
         <td>${escapeHtml(match.categoria || "")}</td>
-        <td>${escapeHtml(match.ronda || "")}</td>
+        <td>${escapeHtml(roundTitle || "")}</td>
         <td>${escapeHtml(match.grupo || "—")}</td>
         <td>${escapeHtml(match.orden ?? "")}</td>
         <td>${escapeHtml(match.estado || "Pendiente")}</td>
@@ -2247,7 +2336,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
     document
       .getElementById("btnTestAndSaveUrl")
-      ?.addEventListener("click", async () => {
+      ?.addEventListener("click", async (event) => {
         const url = inputUrl.value.trim();
         const pin = inputPin.value.trim();
         const discardLocal = engine.localChangesPending && Boolean(url);
@@ -2270,6 +2359,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           return;
         }
 
+        const stopLoading = setButtonLoading(
+          event.currentTarget as HTMLButtonElement,
+          "Probando conexión…",
+        );
         try {
           await engine.fetchAllFromSheets({ discardLocal });
           if (statusBadge) {
@@ -2288,13 +2381,19 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             statusBadge.textContent = "Error de Conexión";
           }
           alert(`Error al conectar con la URL de Apps Script: ${e.message}`);
+        } finally {
+          stopLoading();
         }
       });
 
     document
       .getElementById("btnSyncGoogleSheets")
-      ?.addEventListener("click", async () => {
+      ?.addEventListener("click", async (event) => {
         const msg = document.getElementById("syncResultMsg");
+        const stopLoading = setButtonLoading(
+          event.currentTarget as HTMLButtonElement,
+          "Sincronizando…",
+        );
         if (msg) msg.textContent = "Guardando todos los datos en Google Sheets...";
         try {
           if (!confirmRemoteOverwrite()) {
@@ -2313,11 +2412,31 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           renderDataSyncNotice();
         } catch (error) {
           if (msg) msg.textContent = `No se pudo guardar en Sheets: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+          stopLoading();
         }
       });
   }
 
   // --- Utility ---
+  function setButtonLoading(button, message) {
+    if (!(button instanceof HTMLButtonElement)) return () => {};
+
+    const originalContent = button.innerHTML;
+    const wasDisabled = button.disabled;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.classList.add("button-loading");
+    button.innerHTML = `<span class="button-loading-spinner" aria-hidden="true"></span>${escapeHtml(message)}`;
+
+    return () => {
+      button.innerHTML = originalContent;
+      button.disabled = wasDisabled;
+      button.removeAttribute("aria-busy");
+      button.classList.remove("button-loading");
+    };
+  }
+
   function formatShortDate(value) {
     if (!value) return "—";
 

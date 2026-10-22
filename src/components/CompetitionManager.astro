@@ -488,6 +488,29 @@
     pointer-events: none;
   }
 
+  :global(.button-loading) {
+    cursor: wait;
+    opacity: 0.75;
+  }
+
+  :global(.button-loading-spinner) {
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    margin-right: 8px;
+    border: 2px solid currentColor;
+    border-bottom-color: transparent;
+    border-radius: 50%;
+    vertical-align: -0.1em;
+    animation: button-loading-spin 0.7s linear infinite;
+  }
+
+  @keyframes button-loading-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   #syncAllMsg, #compSheetsMsg {
     padding: 4px 0;
     font-weight: 600;
