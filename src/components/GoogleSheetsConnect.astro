@@ -62,29 +62,29 @@
           2. Sincronización Manual
         </h3>
 
-        <p class="text-muted" style="font-size:13px; line-height:1.5; margin-bottom:16px;">
+        <p class="text-muted" style="font-size:13px; line-height:1.5; margin-bottom:10px;">
           Esta acción envía jornadas, inscritos, competiciones, partidos y puntuaciones locales a sus pestañas correspondientes en Google Sheets.
         </p>
 
-        <button class="btn btn-success btn-lg" id="btnSyncGoogleSheets" style="width:100%;">
+        <button class="btn btn-success" id="btnSyncGoogleSheets" style="width:100%;">
           🔄 Sincronizar Ahora con Google Sheets
         </button>
 
-        <div id="syncResultMsg" class="text-center" style="font-size:13px; margin-top:12px; min-height:20px;"></div>
-      </div>
-    </div>
+        <div id="syncResultMsg" class="text-center" style="font-size:13px; margin-top:8px; min-height:20px;"></div>
 
-    <div class="glass-card" style="margin:16px 0 0; background:rgba(0,0,0,0.2);">
-      <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
-        3. Copia de seguridad
-      </h3>
-      <p class="text-muted" style="font-size:13px; line-height:1.5; margin-bottom:12px;">
-        Descarga los datos guardados actualmente en Google Sheets, sin incluir cambios locales pendientes.
-      </p>
-      <button class="btn btn-secondary" id="btnDownloadSheetsBackup" style="width:100%;">
-        ⬇️ Descargar copia de seguridad de Google Sheets
-      </button>
-      <div id="backupResultMsg" class="text-center" role="status" aria-live="polite" style="font-size:13px; margin-top:12px; min-height:20px;"></div>
+        <div class="glass-card" style="margin:10px 0 0; padding:12px; background:rgba(0,0,0,0.12);">
+          <h3 style="font-size:15px; font-weight:700; color:var(--primary-light); margin-bottom:6px;">
+            3. Copia de seguridad
+          </h3>
+          <p class="text-muted" style="font-size:12px; line-height:1.4; margin-bottom:8px;">
+            Descarga los datos actuales de Google Sheets, sin cambios locales pendientes.
+          </p>
+          <button class="btn btn-secondary btn-sm" id="btnDownloadSheetsBackup" style="width:100%;">
+            ⬇️ Descargar copia de seguridad de Google Sheets
+          </button>
+          <div id="backupResultMsg" class="text-center" role="status" aria-live="polite" style="font-size:13px; margin-top:6px; min-height:20px;"></div>
+        </div>
+      </div>
     </div>
   </div>
 
