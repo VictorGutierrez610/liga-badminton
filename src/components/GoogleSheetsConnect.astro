@@ -56,23 +56,24 @@
         </div>
       </div>
 
-      <!-- Quick Sync Card -->
-      <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
-        <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
-          2. Sincronización Manual
-        </h3>
+      <div style="display:grid; grid-template-rows:repeat(2, minmax(0, 1fr)); gap:12px; min-height:0;">
+        <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
+          <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
+            2. Sincronización Manual
+          </h3>
 
-        <p class="text-muted" style="font-size:13px; line-height:1.5; margin-bottom:10px;">
-          Esta acción envía jornadas, inscritos, competiciones, partidos y puntuaciones locales a sus pestañas correspondientes en Google Sheets.
-        </p>
+          <p class="text-muted" style="font-size:13px; line-height:1.5; margin-bottom:10px;">
+            Esta acción envía jornadas, inscritos, competiciones, partidos y puntuaciones locales a sus pestañas correspondientes en Google Sheets.
+          </p>
 
-        <button class="btn btn-success" id="btnSyncGoogleSheets" style="width:100%;">
-          🔄 Sincronizar Ahora con Google Sheets
-        </button>
+          <button class="btn btn-success" id="btnSyncGoogleSheets" style="width:100%;">
+            🔄 Sincronizar Ahora con Google Sheets
+          </button>
 
-        <div id="syncResultMsg" class="text-center" style="font-size:13px; margin-top:8px; min-height:20px;"></div>
+          <div id="syncResultMsg" class="text-center" style="font-size:13px; margin-top:8px; min-height:20px;"></div>
+        </div>
 
-        <div class="glass-card" style="margin:10px 0 0; padding:12px; background:rgba(0,0,0,0.12);">
+        <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
           <h3 style="font-size:15px; font-weight:700; color:var(--primary-light); margin-bottom:6px;">
             3. Copia de seguridad
           </h3>
