@@ -317,6 +317,47 @@ test('conserva cambios locales cuando la hoja remota cambió desde la última ca
   assert.equal(instance.localChangesPending, true);
 });
 
+test('preserva la marca local de parejas rotativas si Apps Script devuelve una jornada sin ella', async () => {
+  const instance = createEngine();
+  instance.jornadas[0].parejasRotativas = true;
+  instance.callRemote = async () => ({
+    revision: 'revision-remota',
+    socios: [],
+    jornadas: [{ id: 'J1', fecha: '2026-10-18', parejasRotativas: false }],
+    inscritos: {},
+    competiciones: {},
+    partidos: []
+  });
+
+  await instance.fetchAllFromSheets({ discardLocal: true });
+
+  assert.equal(instance.jornadas[0].parejasRotativas, true);
+  assert.equal(instance.localChangesPending, true);
+  assert.equal(instance.remoteRevision, 'revision-remota');
+  assert.match(instance.lastRemoteError, /Apps Script actualizado/);
+});
+
+test('rechaza una sincronización que confirma el guardado pero pierde la marca rotativa', async () => {
+  const instance = createEngine();
+  instance.jornadas[0].parejasRotativas = true;
+  instance.remoteRevision = 'revision-base';
+  instance.syncAllToSheets = BadmintonEngine.prototype.syncAllToSheets.bind(instance);
+  instance.callRemote = async action => action === 'syncAll'
+    ? { revision: 'revision-guardada' }
+    : {
+        revision: 'revision-guardada',
+        jornadas: [{ id: 'J1', parejasRotativas: false }]
+      };
+
+  await assert.rejects(
+    instance.syncAllToSheets(),
+    /no guardó la marca de parejas rotativas/
+  );
+
+  assert.equal(instance.localChangesPending, true);
+  assert.equal(instance.lastSyncStatus, 'remote-error');
+});
+
 test('requiere confirmación antes de reemplazar una versión remota divergente', async () => {
   const instance = new BadmintonEngine();
   instance.saveState = () => {};
@@ -384,6 +425,89 @@ test('el backend valida resultados con los participantes y ronda guardados', () 
     /un solo set/
   );
   assert.equal(row[7], 'Pendiente');
+});
+
+test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas sin sobrescribir columnas', () => {
+  const headers = [
+    'ID_Jornada', 'Fecha', 'Modalidad', 'Formato', 'BO3_Desde',
+    'PuntosSet', 'GanarPor2', 'Creada', 'Estado'
+  ];
+  const rows = [[
+    'J20261002', '2026-10-02', 'Dobles', 'MIXTO', 'Fase eliminatoria',
+    15, false, 'En Curso', ''
+  ]];
+  const sheet = {
+    getLastColumn: () => headers.length,
+    getDataRange: () => ({
+      getValues: () => [
+        [...headers],
+        ...rows.map(row => [...row, ...Array(Math.max(0, headers.length - row.length)).fill('')])
+      ]
+    }),
+    getRange: (rowNumber, columnNumber, rowCount, columnCount) => {
+      if (rowCount !== undefined && columnCount !== undefined) {
+        return {
+          getValues: () => [headers.slice(columnNumber - 1, columnNumber - 1 + columnCount)]
+        };
+      }
+      const range = {
+        getValue: () => rowNumber === 1
+          ? headers[columnNumber - 1]
+          : rows[rowNumber - 2]?.[columnNumber - 1],
+        setValue: value => {
+          if (rowNumber === 1) {
+            headers[columnNumber - 1] = value;
+          } else {
+            rows[rowNumber - 2][columnNumber - 1] = value;
+          }
+          return range;
+        },
+        setFontWeight: () => {}
+      };
+      return range;
+    }
+  };
+  const context = {
+    SpreadsheetApp: {
+      openById: () => ({ getSheetByName: () => sheet })
+    },
+    Utilities: {
+      formatDate: value => String(value)
+    },
+    Session: {
+      getScriptTimeZone: () => 'UTC'
+    }
+  };
+  runInNewContext(
+    `${APPS_SCRIPT_CODE}\nthis.getJornadas = getJornadas; this.getJornadasSheet = getJornadasSheet; this.getJornadasColumns = getJornadasColumns; this.jornadaRow = jornadaRow;`,
+    context
+  );
+
+  const jornadas = context.getJornadas();
+  assert.equal(headers[9], 'ParejasRotativas');
+  assert.equal(jornadas[0].id, 'J20261002');
+  assert.equal(jornadas[0].desde, 'Fase eliminatoria');
+  assert.equal(jornadas[0].definitiva, false);
+  assert.equal(jornadas[0].parejasRotativas, false);
+  assert.equal(rows[0][7], 'En Curso');
+  assert.equal(rows[0][8], 'En Curso');
+
+  const columns = context.getJornadasColumns(context.getJornadasSheet());
+  const updatedRow = context.jornadaRow({
+    id: 'J20261002',
+    fecha: '2026-10-02',
+    modalidad: 'Dobles',
+    formato: 'MIXTO',
+    desde: 'Fase eliminatoria',
+    puntosSet: 15,
+    ganarPor2: false,
+    definitiva: false,
+    parejasRotativas: true
+  }, columns, rows[0]);
+
+  assert.equal(updatedRow[7], 'En Curso');
+  assert.equal(updatedRow[8], 'En Curso');
+  assert.equal(updatedRow[9], true);
 });
 
 test('borrar un resultado eliminatorio invalida también las rondas posteriores', async () => {
@@ -679,5 +803,5 @@ test('clasifica individualmente y genera la final mixta con los dos primeros de 
 test('el código Apps Script embebido mantiene sintaxis JavaScript válida', () => {
   assert.doesNotThrow(() => new Function(APPS_SCRIPT_CODE));
   assert.match(APPS_SCRIPT_CODE, /ParejasRotativas/);
-  assert.match(APPS_SCRIPT_CODE, /j\.parejasRotativas\s*\|\|\s*false/);
+  assert.match(APPS_SCRIPT_CODE, /jornada\.parejasRotativas\s*\|\|\s*false/);
 });

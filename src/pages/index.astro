@@ -2629,6 +2629,60 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           stopLoading();
         }
       });
+
+    document
+      .getElementById("btnDownloadSheetsBackup")
+      ?.addEventListener("click", async (event) => {
+        const msg = document.getElementById("syncResultMsg");
+        const stopLoading = setButtonLoading(
+          event.currentTarget as HTMLButtonElement,
+          "Descargando copia…",
+        );
+        if (msg) {
+          msg.style.color = "var(--text-muted)";
+          msg.textContent = "Consultando la versión actual de Google Sheets…";
+        }
+        try {
+          const backup = await engine.callRemote("getAllData", {}, { strict: true });
+          if (
+            !backup ||
+            !Array.isArray(backup.jornadas) ||
+            !Array.isArray(backup.partidos) ||
+            !backup.inscritos ||
+            !backup.competiciones ||
+            !Array.isArray(backup.socios)
+          ) {
+            throw new Error("Google Sheets no devolvió una copia completa de los datos.");
+          }
+
+          const date = new Date().toISOString().slice(0, 10);
+          const filename = `liga-badminton-google-sheets-${date}.json`;
+          const blob = new Blob(
+            [JSON.stringify({ descargado: new Date().toISOString(), ...backup }, null, 2)],
+            { type: "application/json;charset=utf-8" },
+          );
+          const downloadUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = downloadUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+
+          if (msg) {
+            msg.style.color = "var(--accent-green)";
+            msg.textContent = `Copia de seguridad descargada: ${filename}`;
+          }
+        } catch (error) {
+          if (msg) {
+            msg.style.color = "var(--accent-red)";
+            msg.textContent = `No se pudo descargar la copia de Google Sheets: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        } finally {
+          stopLoading();
+        }
+      });
   }
 
   // --- Utility ---

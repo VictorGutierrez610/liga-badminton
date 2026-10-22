@@ -313,10 +313,32 @@ export class BadmintonEngine {
   async fetchJornadas() {
     const remote = await this.callRemote('getJornadas');
     if (remote && Array.isArray(remote)) {
-      this.jornadas = remote;
+      const { jornadas, restoredIds } = this.mergeRotatingJornadaFlags(remote);
+      this.jornadas = jornadas;
+      if (restoredIds.length) {
+        this.localChangesPending = true;
+        this.lastSyncStatus = 'local-only';
+        this.lastRemoteError = `Google Sheets no devolvió la configuración de parejas rotativas de ${restoredIds.join(', ')}. Se conservó localmente; sincroniza con el Apps Script actualizado.`;
+      }
       this.saveState();
     }
     return this.getJornadas();
+  }
+
+  mergeRotatingJornadaFlags(remoteJornadas) {
+    const localRotatingById = new Map(
+      this.jornadas
+        .filter(jornada => jornada.parejasRotativas)
+        .map(jornada => [String(jornada.id), jornada])
+    );
+    const restoredIds = [];
+    const jornadas = remoteJornadas.map(jornada => {
+      const localJornada = localRotatingById.get(String(jornada.id));
+      if (!localJornada || jornada.parejasRotativas) return jornada;
+      restoredIds.push(String(jornada.id));
+      return { ...jornada, parejasRotativas: true };
+    });
+    return { jornadas, restoredIds };
   }
 
   async fetchAllFromSheets({ discardLocal = false } = {}) {
@@ -346,15 +368,19 @@ export class BadmintonEngine {
     }
 
     this.socios = Array.isArray(remote.socios) ? remote.socios : this.socios;
-    this.jornadas = remote.jornadas;
+    // Keep the rotation setting if the deployed backend doesn't return its column.
+    const { jornadas, restoredIds } = this.mergeRotatingJornadaFlags(remote.jornadas);
+    this.jornadas = jornadas;
     this.inscritos = remote.inscritos || {};
     this.competiciones = remote.competiciones || {};
     this.partidos = remote.partidos;
     this.remoteRevision = remote.revision;
     this.remoteConflictRevision = null;
-    this.localChangesPending = false;
-    this.lastSyncStatus = 'synced';
-    this.lastRemoteError = '';
+    this.localChangesPending = restoredIds.length > 0;
+    this.lastSyncStatus = restoredIds.length ? 'local-only' : 'synced';
+    this.lastRemoteError = restoredIds.length
+      ? `Google Sheets no devolvió la configuración de parejas rotativas de ${restoredIds.join(', ')}. Se conservó localmente; sincroniza con el Apps Script actualizado.`
+      : '';
     this.saveState();
     return remote;
   }
@@ -823,6 +849,32 @@ export class BadmintonEngine {
       }
       const result = await this.callRemote('syncAll', { data }, { strict: true });
       if (result?.revision) this.remoteRevision = result.revision;
+      const rotatingJornadas = data.jornadas.filter(jornada => jornada.parejasRotativas);
+      if (rotatingJornadas.length) {
+        let remote;
+        try {
+          remote = await this.callRemote('getAllData', {}, { strict: true });
+        } catch (error) {
+          this.localChangesPending = true;
+          this.lastSyncStatus = 'remote-error';
+          this.lastRemoteError = error.message || String(error);
+          this.saveState();
+          throw new Error(`No se pudo verificar que Google Sheets conservara las parejas rotativas: ${this.lastRemoteError}`);
+        }
+        const remoteJornadasById = new Map(
+          (remote?.jornadas || []).map(jornada => [String(jornada.id), jornada])
+        );
+        const missingFlags = rotatingJornadas
+          .filter(jornada => !remoteJornadasById.get(String(jornada.id))?.parejasRotativas)
+          .map(jornada => String(jornada.id));
+        if (missingFlags.length) {
+          this.localChangesPending = true;
+          this.lastSyncStatus = 'remote-error';
+          this.lastRemoteError = `Google Sheets no guardó la marca de parejas rotativas de ${missingFlags.join(', ')}. Despliega el Apps Script actualizado y vuelve a sincronizar.`;
+          this.saveState();
+          throw new Error(this.lastRemoteError);
+        }
+      }
       this.remoteConflictRevision = null;
       this.saveState();
       return result;

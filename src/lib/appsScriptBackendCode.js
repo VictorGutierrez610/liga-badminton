@@ -88,19 +88,87 @@ function sheetRows(sheet) {
   return sheet.getDataRange().getValues().slice(1);
 }
 
+function normalizeJornadaHeader(value) {
+  return String(value || '').trim().toLocaleUpperCase('es')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
 function getJornadasSheet() {
   const headers = ['ID','Fecha','Modalidad','Formato','Desde','PuntosSet','GanarPor2','Estado','ParejasRotativas'];
   const sheet = getOrCreateSheet('Jornadas', headers);
-  const rotatingHeader = sheet.getRange(1, 9).getValue();
-  if (!rotatingHeader) {
-    if (sheet.getLastColumn() > 8) {
-      throw new Error('La columna I de Jornadas contiene datos; no se puede añadir ParejasRotativas sin revisar la hoja.');
-    }
-    sheet.getRange(1, 9).setValue(headers[8]).setFontWeight('bold');
-  } else if (String(rotatingHeader) !== headers[8]) {
-    throw new Error('La columna I de Jornadas ya está ocupada; no se puede añadir ParejasRotativas sin revisar la hoja.');
+  let headerValues = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0];
+  let rotatingColumn = headerValues.findIndex(value => normalizeJornadaHeader(value) === 'PAREJASROTATIVAS');
+  if (rotatingColumn < 0) {
+    let lastHeaderColumn = headerValues.reduce(
+      (last, value, index) => value ? index + 1 : last,
+      0
+    );
+    rotatingColumn = lastHeaderColumn;
+    sheet.getRange(1, rotatingColumn + 1).setValue(headers[8]).setFontWeight('bold');
+    headerValues[rotatingColumn] = headers[8];
   }
+  getJornadasColumns(sheet);
   return sheet;
+}
+
+function getJornadasColumns(sheet) {
+  const headerValues = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 9)).getValues()[0];
+  const findColumn = aliases => {
+    const aliasSet = new Set(aliases.map(normalizeJornadaHeader));
+    return headerValues.findIndex(value => aliasSet.has(normalizeJornadaHeader(value)));
+  };
+  const columns = {
+    id: findColumn(['ID', 'ID_Jornada']),
+    fecha: findColumn(['Fecha']),
+    modalidad: findColumn(['Modalidad']),
+    formato: findColumn(['Formato']),
+    desde: findColumn(['Desde', 'BO3_Desde']),
+    puntosSet: findColumn(['PuntosSet']),
+    ganarPor2: findColumn(['GanarPor2']),
+    rotating: findColumn(['ParejasRotativas'])
+  };
+
+  const estadoColumn = findColumn(['Estado']);
+  const legacyStateColumn = findColumn(['Creada']);
+  const rows = sheetRows(sheet);
+  const stateValues = new Set(['ENCURSO', 'DEFINITIVA', 'FINALIZADA']);
+  columns.estado = estadoColumn >= 0 ? estadoColumn : legacyStateColumn;
+  if (estadoColumn >= 0 && legacyStateColumn >= 0) {
+    rows.forEach((row, index) => {
+      const legacyStatus = normalizeJornadaHeader(row[legacyStateColumn]);
+      if (
+        !normalizeJornadaHeader(row[estadoColumn]) &&
+        stateValues.has(legacyStatus)
+      ) {
+        sheet.getRange(index + 2, estadoColumn + 1).setValue(row[legacyStateColumn]);
+      }
+    });
+  }
+  columns.width = Math.max(
+    headerValues.length,
+    Math.max(...Object.values(columns).filter(value => Number.isInteger(value))) + 1
+  );
+  if (Object.entries(columns).some(([key, value]) => key !== 'width' && value < 0)) {
+    throw new Error('La hoja Jornadas no contiene los encabezados necesarios. Revisa ID_Jornada, Fecha, Modalidad, Formato, BO3_Desde, PuntosSet, GanarPor2 y Estado.');
+  }
+  return columns;
+}
+
+function jornadaRow(jornada, columns, existingRow) {
+  const row = Array.from({ length: columns.width }, (_, index) =>
+    existingRow && index < existingRow.length ? existingRow[index] : ''
+  );
+  row[columns.id] = jornada.id;
+  row[columns.fecha] = jornada.fecha;
+  row[columns.modalidad] = jornada.modalidad;
+  row[columns.formato] = jornada.formato;
+  row[columns.desde] = jornada.desde || '';
+  row[columns.puntosSet] = jornada.puntosSet || 15;
+  row[columns.ganarPor2] = jornada.ganarPor2 || false;
+  row[columns.estado] = jornada.definitiva ? 'Definitiva' : 'En Curso';
+  row[columns.rotating] = jornada.parejasRotativas || false;
+  return row;
 }
 
 function getSheetsRevision() {
@@ -134,12 +202,18 @@ function getSocios() {
 
 function getJornadas() {
   const sheet = getJornadasSheet();
-  return sheetRows(sheet).filter(r => r[0]).map(r => ({
-    id: String(r[0]), fecha: formatSheetDate(r[1]), modalidad: r[2], formato: r[3], desde: r[4],
-    puntosSet: Number(r[5]) || 15,
-    ganarPor2: r[6] === true || String(r[6]).toUpperCase() === 'VERDADERO' || String(r[6]).toUpperCase() === 'TRUE',
-    definitiva: r[7] === 'Definitiva', parejasRotativas: r[8] === true ||
-      String(r[8]).toUpperCase() === 'VERDADERO' || String(r[8]).toUpperCase() === 'TRUE',
+  const columns = getJornadasColumns(sheet);
+  return sheetRows(sheet).filter(r => r[columns.id]).map(r => ({
+    id: String(r[columns.id]),
+    fecha: formatSheetDate(r[columns.fecha]),
+    modalidad: r[columns.modalidad],
+    formato: r[columns.formato],
+    desde: r[columns.desde],
+    puntosSet: Number(r[columns.puntosSet]) || 15,
+    ganarPor2: r[columns.ganarPor2] === true || String(r[columns.ganarPor2]).toUpperCase() === 'VERDADERO' || String(r[columns.ganarPor2]).toUpperCase() === 'TRUE',
+    definitiva: normalizeJornadaHeader(r[columns.estado]) === 'DEFINITIVA',
+    parejasRotativas: r[columns.rotating] === true ||
+      String(r[columns.rotating]).toUpperCase() === 'VERDADERO' || String(r[columns.rotating]).toUpperCase() === 'TRUE',
     partidos: 0
   }));
 }
@@ -204,17 +278,22 @@ function formatSheetDate(value) {
 
 function crearJornada(j) {
   const sheet = getJornadasSheet();
-  if (sheetRows(sheet).some(r => String(r[0]) === String(j.id)))
+  const columns = getJornadasColumns(sheet);
+  if (sheetRows(sheet).some(r => String(r[columns.id]) === String(j.id)))
     throw new Error('Ya existe una jornada con ese ID.');
-  sheet.appendRow([j.id, j.fecha, j.modalidad, j.formato, j.desde||'', j.puntosSet||15, j.ganarPor2||false, 'En Curso', j.parejasRotativas||false]);
+  sheet.appendRow(jornadaRow(j, columns));
   return j;
 }
 
 function guardarJornadaDefinitiva(idJornada) {
   const sheet = getJornadasSheet();
   const data = sheet.getDataRange().getValues();
+  const columns = getJornadasColumns(sheet);
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(idJornada)) { sheet.getRange(i+1,8).setValue('Definitiva'); return true; }
+    if (String(data[i][columns.id]) === String(idJornada)) {
+      sheet.getRange(i + 1, columns.estado + 1).setValue('Definitiva');
+      return true;
+    }
   }
   throw new Error('Jornada no encontrada: ' + idJornada);
 }
@@ -454,10 +533,15 @@ function syncAll(data, expectedRevision) {
     throw new Error('Los datos de Google Sheets cambiaron desde la última carga. No se sobrescribieron; vuelve a cargar y revisar los cambios.');
   }
 
-  const jornadaRows = data.jornadas.map(j => [
-    j.id, j.fecha, j.modalidad, j.formato, j.desde || '', j.puntosSet || 15,
-    j.ganarPor2 || false, j.definitiva ? 'Definitiva' : 'En Curso', j.parejasRotativas || false
-  ]);
+  const jornadasSheet = getJornadasSheet();
+  const jornadaColumns = getJornadasColumns(jornadasSheet);
+  const currentJornadaRows = sheetRows(jornadasSheet);
+  const currentJornadaRowsById = new Map(
+    currentJornadaRows.map(row => [String(row[jornadaColumns.id]), row])
+  );
+  const jornadaRows = data.jornadas.map(j =>
+    jornadaRow(j, jornadaColumns, currentJornadaRowsById.get(String(j.id)))
+  );
   const inscritoRows = [];
   Object.entries(data.inscritos).forEach(([key, list]) => {
     if (!Array.isArray(list)) throw new Error('La lista de inscritos contiene datos inválidos.');
@@ -473,7 +557,7 @@ function syncAll(data, expectedRevision) {
   const partidoRows = data.partidos.map(_partidoRow);
 
   const tables = [
-    [getJornadasSheet(), 9, jornadaRows],
+    [jornadasSheet, jornadaColumns.width, jornadaRows],
     [getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']), 5, inscritoRows],
     [getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']), 5, competicionRows],
     [getOrCreateSheet('Partidos', _hP()), 14, partidoRows]

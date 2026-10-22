@@ -41,4 +41,4 @@ El backend devuelve una revisión de los datos y exige esa revisión en las oper
 
 Los desempates de grupos vigentes son, en este orden: victorias, diferencia de sets, diferencia de puntos y nombre. Las clasificaciones se muestran como provisionales mientras haya partidos de grupo pendientes.
 
-En parejas rotativas, los desempates individuales son: victorias, diferencia de puntos, puntos a favor y nombre. La hoja `Jornadas` conserva sus columnas actuales y añade `ParejasRotativas` al final; las hojas `Partidos` e `Inscritos` mantienen sus formatos actuales.
+En parejas rotativas, los desempates individuales son: victorias, diferencia de puntos, puntos a favor y nombre. La hoja `Jornadas` añade `ParejasRotativas` después de sus encabezados existentes. El Apps Script reconoce tanto los encabezados estándar como los nombres heredados `ID_Jornada` y `BO3_Desde`, y conserva columnas adicionales como `Creada`. Las hojas `Partidos` e `Inscritos` mantienen sus formatos actuales.
