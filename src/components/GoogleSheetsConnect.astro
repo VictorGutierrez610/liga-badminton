@@ -8,6 +8,14 @@
       Conecta la aplicación web con la hoja de cálculo de la liga (ID: <code>1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y</code>) mediante el código Apps Script incluido.
     </p>
 
+    <div id="dataSyncNotice" role="status" aria-live="polite" class="glass-card" data-kind="loading" style="display:none; padding:10px 14px; margin-bottom:16px; font-size:13px;">
+      <div id="dataSyncNoticeText"></div>
+      <div id="dataConflictActions" class="flex-gap" style="display:none; margin-top:10px;">
+        <button type="button" class="btn btn-primary btn-sm" id="btnKeepLocalAndSync">Conservar y sincronizar datos locales</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btnDiscardLocalAndReload">Descartar cambios locales y cargar Sheets</button>
+      </div>
+    </div>
+
     <div class="grid-cols-2">
       <!-- Connection Form -->
       <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
@@ -62,15 +70,21 @@
           🔄 Sincronizar Ahora con Google Sheets
         </button>
 
-        <p class="text-muted" style="font-size:12px; line-height:1.5; margin:16px 0 10px;">
-          Descarga una copia de los datos que están guardados ahora mismo en Google Sheets, sin incluir cambios locales pendientes.
-        </p>
-        <button class="btn btn-secondary" id="btnDownloadSheetsBackup" style="width:100%;">
-          ⬇️ Descargar copia de seguridad de Google Sheets
-        </button>
-
         <div id="syncResultMsg" class="text-center" style="font-size:13px; margin-top:12px; min-height:20px;"></div>
       </div>
+    </div>
+
+    <div class="glass-card" style="margin:16px 0 0; background:rgba(0,0,0,0.2);">
+      <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:12px;">
+        3. Copia de seguridad
+      </h3>
+      <p class="text-muted" style="font-size:13px; line-height:1.5; margin-bottom:12px;">
+        Descarga los datos guardados actualmente en Google Sheets, sin incluir cambios locales pendientes.
+      </p>
+      <button class="btn btn-secondary" id="btnDownloadSheetsBackup" style="width:100%;">
+        ⬇️ Descargar copia de seguridad de Google Sheets
+      </button>
+      <div id="backupResultMsg" class="text-center" role="status" aria-live="polite" style="font-size:13px; margin-top:12px; min-height:20px;"></div>
     </div>
   </div>
 

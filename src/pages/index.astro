@@ -11,13 +11,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   <Header />
 
   <main>
-    <div id="dataSyncNotice" role="status" aria-live="polite" class="glass-card" data-kind="loading" style="display:none; padding:10px 14px; margin-bottom:14px; font-size:13px;">
-      <div id="dataSyncNoticeText"></div>
-      <div id="dataConflictActions" class="flex-gap" style="display:none; margin-top:10px;">
-        <button type="button" class="btn btn-primary btn-sm" id="btnKeepLocalAndSync">Conservar y sincronizar datos locales</button>
-        <button type="button" class="btn btn-secondary btn-sm" id="btnDiscardLocalAndReload">Descartar cambios locales y cargar Sheets</button>
-      </div>
-    </div>
     <MatchVisualizer />
 
     <!-- ENVOLTORIO PROTEGIDO PARA ADMIN: GESTOR DE COMPETICIÓN -->
@@ -1202,6 +1195,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           refreshCompetitionState();
         } catch (err) {
           document.getElementById("newJornadaError").textContent = err.message;
+          refreshCompetitionState();
         } finally {
           stopLoading();
         }
@@ -2625,6 +2619,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           renderDataSyncNotice();
         } catch (error) {
           if (msg) msg.textContent = `No se pudo guardar en Sheets: ${error instanceof Error ? error.message : String(error)}`;
+          renderDataSyncNotice();
         } finally {
           stopLoading();
         }
@@ -2633,7 +2628,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document
       .getElementById("btnDownloadSheetsBackup")
       ?.addEventListener("click", async (event) => {
-        const msg = document.getElementById("syncResultMsg");
+      const msg = document.getElementById("backupResultMsg");
         const stopLoading = setButtonLoading(
           event.currentTarget as HTMLButtonElement,
           "Descargando copia…",

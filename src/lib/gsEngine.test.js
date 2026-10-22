@@ -44,6 +44,55 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
   }
 });
 
+test('verifica que una jornada rotativa se haya persistido en Google Sheets', async () => {
+  const instance = new BadmintonEngine();
+  instance.saveState = () => {};
+  instance.remoteRevision = 'revision-inicial';
+  const calls = [];
+  instance.callRemote = async action => {
+    calls.push(action);
+    if (action === 'crearJornada') return { id: 'J20261030' };
+    if (action === 'getJornadas') {
+      return [{ id: 'J20261030', parejasRotativas: true }];
+    }
+    throw new Error(`Acción inesperada: ${action}`);
+  };
+
+  await instance.crearJornada({
+    fecha: '2026-10-30',
+    modalidad: 'Dobles mixtos',
+    formato: 'UNO',
+    puntosSet: 15,
+    parejasRotativas: true
+  });
+
+  assert.deepEqual(calls, ['crearJornada', 'getJornadas']);
+  assert.equal(instance.localChangesPending, false);
+});
+
+test('marca como pendiente una jornada rotativa si Google Sheets no devuelve la marca', async () => {
+  const instance = new BadmintonEngine();
+  instance.saveState = () => {};
+  instance.remoteRevision = 'revision-inicial';
+  instance.callRemote = async action => action === 'crearJornada'
+    ? { id: 'J20261030' }
+    : [{ id: 'J20261030', parejasRotativas: false }];
+
+  await assert.rejects(
+    instance.crearJornada({
+      fecha: '2026-10-30',
+      modalidad: 'Dobles mixtos',
+      formato: 'UNO',
+      puntosSet: 15,
+      parejasRotativas: true
+    }),
+    /no devolvió la marca de parejas rotativas/
+  );
+
+  assert.equal(instance.localChangesPending, true);
+  assert.equal(instance.lastSyncStatus, 'remote-error');
+});
+
 function createEngine({
   formato = 'UNO',
   desde = '',
@@ -62,7 +111,9 @@ function createEngine({
     puntosSet
   }];
   instance.competiciones['J1_IM-A'] = { sistema };
-  instance.callRemote = async () => ({ revision: 'revision-test' });
+  instance.callRemote = async action => action === 'getJornadas'
+    ? instance.jornadas
+    : ({ revision: 'revision-test' });
   instance.syncAllToSheets = async data => {
     instance.lastSyncedSnapshot = data;
     instance.remoteRevision = 'revision-updated';
@@ -467,7 +518,8 @@ test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas
         setFontWeight: () => {}
       };
       return range;
-    }
+    },
+    appendRow: row => rows.push([...row])
   };
   const context = {
     SpreadsheetApp: {
@@ -481,7 +533,7 @@ test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas
     }
   };
   runInNewContext(
-    `${APPS_SCRIPT_CODE}\nthis.getJornadas = getJornadas; this.getJornadasSheet = getJornadasSheet; this.getJornadasColumns = getJornadasColumns; this.jornadaRow = jornadaRow;`,
+    `${APPS_SCRIPT_CODE}\nthis.getJornadas = getJornadas; this.getJornadasSheet = getJornadasSheet; this.getJornadasColumns = getJornadasColumns; this.jornadaRow = jornadaRow; this.crearJornada = crearJornada;`,
     context
   );
 
@@ -510,6 +562,18 @@ test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas
   assert.equal(updatedRow[7], 'En Curso');
   assert.equal(updatedRow[8], 'En Curso');
   assert.equal(updatedRow[9], true);
+
+  context.crearJornada({
+    id: 'J20261016',
+    fecha: '2026-10-16',
+    modalidad: 'Dobles mixtos',
+    formato: 'UNO',
+    parejasRotativas: true,
+    puntosSet: 15,
+    ganarPor2: false
+  });
+  assert.equal(rows[1][9], true);
+  assert.equal(context.getJornadas()[1].parejasRotativas, true);
 });
 
 test('borrar un resultado eliminatorio invalida también las rondas posteriores', async () => {

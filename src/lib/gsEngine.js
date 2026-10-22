@@ -436,7 +436,24 @@ export class BadmintonEngine {
 
     this.jornadas.push(nueva);
     this.saveState();
-    await this.callRemote('crearJornada', { jornada: nueva }, { strict: false });
+    const remoteResult = await this.callRemote('crearJornada', { jornada: nueva }, { strict: false });
+    if (nueva.parejasRotativas && remoteResult) {
+      try {
+        const remoteJornadas = await this.callRemote('getJornadas', {}, { strict: true });
+        const remoteJornada = Array.isArray(remoteJornadas)
+          ? remoteJornadas.find(jornada => String(jornada.id) === String(nueva.id))
+          : null;
+        if (!remoteJornada?.parejasRotativas) {
+          throw new Error('Google Sheets no devolvió la marca de parejas rotativas para la nueva jornada.');
+        }
+      } catch (error) {
+        this.localChangesPending = true;
+        this.lastSyncStatus = 'remote-error';
+        this.lastRemoteError = error.message || String(error);
+        this.saveState();
+        throw new Error(`No se pudo verificar el guardado de parejas rotativas: ${this.lastRemoteError}`);
+      }
+    }
     return nueva;
   }
 
