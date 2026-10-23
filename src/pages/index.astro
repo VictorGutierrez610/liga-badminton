@@ -660,8 +660,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       ? `<div class="badge badge-borrador" style="margin-bottom:12px; white-space:normal;">Clasificación provisional · ${pendingGroupMatches} partido(s) de grupo pendiente(s).</div>`
       : "";
     html += isRotating
-      ? '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Clasificación individual · Desempates: victorias, diferencia de puntos, puntos a favor y nombre.</p>'
-      : '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Desempates: victorias, diferencia de sets, diferencia de puntos y nombre.</p>';
+      ? '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Clasificación individual · Desempates: victorias, diferencia de puntos y puntos a favor. Si persiste la igualdad, se comparte posición.</p>'
+      : '<p class="text-muted" style="font-size:12px; margin:0 0 12px;">Desempates: victorias, diferencia de sets y diferencia de puntos. Si persiste la igualdad, se comparte posición.</p>';
     groupKeys.forEach((gName) => {
       const rows = clas[gName];
       html += `
@@ -689,10 +689,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
               <tbody>`;
 
       rows.forEach((row, idx) => {
-        const isLeader = idx === 0;
+        const position = row.posicion || idx + 1;
+        const isLeader = position === 1;
         html += `
           <tr class="${isLeader ? "leader-row" : ""}">
-            <td><b>${idx + 1}º</b></td>
+            <td><b>${position}º</b></td>
             <td class="text-left">${escapeHtml(row.nombre)}</td>
             <td>${row.PJ}</td>
             <td class="text-green">${row.G}</td>
@@ -856,6 +857,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         error instanceof Error ? error.message : String(error);
       return;
     }
+    const formatControl = document.getElementById("scoreMatchFormatControl");
+    const formatSelect = document.getElementById("scoreMatchFormat");
+    const canOverrideFormat = m.ronda !== "Fase de grupos";
+    formatControl.style.display = canOverrideFormat ? "" : "none";
+    formatSelect.value = m.formato || "JORNADA";
+    formatSelect.options[0].textContent =
+      `Formato de jornada (${format === "TRES" ? "Mejor de 3 sets" : "Mejor de 1 set"})`;
     document.getElementById("set2Row").style.display = format === "TRES" ? "" : "none";
     document.getElementById("set3Row").style.display = format === "TRES" ? "" : "none";
 
@@ -881,6 +889,28 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document.getElementById("scoreEntryModal").style.display = "none";
     selectedScoreMatch = null;
   }
+
+  document.getElementById("scoreMatchFormat")?.addEventListener("change", (event) => {
+    if (!selectedScoreMatch) return;
+    const jornada = engine.jornadas.find((item) => item.id === selectedScoreMatch.jornada);
+    if (!jornada) return;
+    const matchFormat = event.currentTarget.value === "JORNADA"
+      ? ""
+      : event.currentTarget.value;
+    try {
+      const format = engine.getEffectiveMatchFormat(
+        jornada,
+        { ...selectedScoreMatch, formato: matchFormat },
+      );
+      event.currentTarget.options[0].textContent =
+        `Formato de jornada (${format === "TRES" ? "Mejor de 3 sets" : "Mejor de 1 set"})`;
+      document.getElementById("set2Row").style.display = format === "TRES" ? "" : "none";
+      document.getElementById("set3Row").style.display = format === "TRES" ? "" : "none";
+    } catch (error) {
+      document.getElementById("scoreModalError").textContent =
+        error instanceof Error ? error.message : String(error);
+    }
+  });
 
   function openMatchParticipantsModal(matchId) {
     if (!engine.isAdminSession()) {
@@ -1056,7 +1086,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       "Guardando…",
     );
     try {
-      await engine.guardarResultado(selectedScoreMatch.id, sets);
+      const formatControl = document.getElementById("scoreMatchFormatControl");
+      const selectedFormat = document.getElementById("scoreMatchFormat").value;
+      const matchFormat = formatControl.style.display === "none" || selectedFormat === "JORNADA"
+        ? ""
+        : selectedFormat;
+      await engine.guardarResultado(selectedScoreMatch.id, sets, matchFormat);
       closeScoreModal();
       refreshCompetitionState();
     } catch (err) {
@@ -2111,7 +2146,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             Clasificación individual · Parejas rotativas
           </h3>
           <p class="text-muted" style="font-size:12px; margin-bottom:12px;">
-            Desempates: victorias, diferencia de puntos, puntos a favor y nombre.
+            Desempates: victorias, diferencia de puntos y puntos a favor. Si persiste la igualdad, se comparte posición.
             ${detail.todosGruposTerminados ? "Rondas clasificatorias completadas." : "Clasificación provisional."}
           </p>
           <div class="table-container">
@@ -2121,8 +2156,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
               </thead>
               <tbody>
                 ${ranking.map((player, index) => `
-                  <tr class="${index === 0 ? "leader-row" : ""}">
-                    <td><b>${index + 1}º</b></td>
+                  <tr class="${(player.posicion || index + 1) === 1 ? "leader-row" : ""}">
+                    <td><b>${player.posicion || index + 1}º</b></td>
                     <td class="text-left">${escapeHtml(player.nombre)}</td>
                     <td>${player.PJ}</td><td class="text-green">${player.G}</td>
                     <td class="text-red">${player.P}</td><td>${player.PF}</td><td>${player.PC}</td>

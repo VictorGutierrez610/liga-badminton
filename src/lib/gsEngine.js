@@ -7,8 +7,9 @@
 const DEFAULT_SHEET_ID = '1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y';
 
 // Coloca aquí la URL que te genera Google Apps Script al hacer la "Nueva Implementación"
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbygLCq-7tFGb-BHrPphKAWIovEAGSIxyZZ8FU8qVRsNZ7bP71sgUvzRzwwbmy3L48Smdg/exec';
 const PREVIOUS_DEFAULT_WEB_APP_URLS = new Set([
+  'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec',
   'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec',
   'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec'
 ]);
@@ -1229,6 +1230,15 @@ export class BadmintonEngine {
       b.PF - a.PF ||
       a.nombre.localeCompare(b.nombre, 'es')
     );
+    ranking.forEach((player, index) => {
+      const previous = ranking[index - 1];
+      player.posicion = previous &&
+        previous.grupoVictorias === player.grupoVictorias &&
+        previous.diffPuntosGrupo === player.diffPuntosGrupo &&
+        previous.PF === player.PF
+        ? previous.posicion
+        : index + 1;
+    });
     return { 'Clasificación individual': ranking };
   }
 
@@ -1733,8 +1743,15 @@ export class BadmintonEngine {
       ));
 
       grupos[g].forEach((s, idx) => {
+        const previous = grupos[g][idx - 1];
+        s.posicion = previous &&
+          previous.grupoVictorias === s.grupoVictorias &&
+          previous.diffSetsGrupo === s.diffSetsGrupo &&
+          previous.diffPuntosGrupo === s.diffPuntosGrupo
+          ? previous.posicion
+          : idx + 1;
         if (comp && comp.sistema === 'LIGA') {
-          s.pts = Math.max(10, 100 - 15 * idx);
+          s.pts = Math.max(10, 100 - 15 * (s.posicion - 1));
         } else {
           s.pts = 10 + s.grupoVictorias * 5;
         }
@@ -1745,6 +1762,10 @@ export class BadmintonEngine {
   }
 
   getEffectiveMatchFormat(jornada, match) {
+    if (match.formato) {
+      if (match.formato === 'UNO' || match.formato === 'TRES') return match.formato;
+      throw new Error('El formato individual del partido no es válido.');
+    }
     if (jornada.formato !== 'MIXTO') {
       if (jornada.formato === 'UNO' || jornada.formato === 'TRES') return jornada.formato;
       throw new Error('El formato de juego de la jornada no es válido.');
@@ -1829,12 +1850,20 @@ export class BadmintonEngine {
       setWinners.filter(winner => winner === 'B').length ? 'A' : 'B';
   }
 
-  async guardarResultado(idPartido, sets) {
+  async guardarResultado(idPartido, sets, formato) {
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
 
-    const ganador = this.validateScore(p, sets);
-    const updatedMatch = { ...p, sets, estado: 'Jugado', ganador, registrado: Date.now() };
+    const matchFormat = formato === undefined ? (p.formato || '') : formato;
+    const matchWithFormat = { ...p, formato: matchFormat };
+    const ganador = this.validateScore(matchWithFormat, sets);
+    const updatedMatch = {
+      ...matchWithFormat,
+      sets,
+      estado: 'Jugado',
+      ganador,
+      registrado: Date.now()
+    };
     try {
       await this.callRemote('guardarResultado', {
         idPartido,
@@ -2020,10 +2049,10 @@ export class BadmintonEngine {
         if (playedMatches.length) {
           const standings = this.calcClasificacion(inscritos, playedMatches, comp);
           const orderedPlayers = Object.values(standings).flat();
-          orderedPlayers.filter(player => player.PJ > 0).forEach((player, index) => {
+          orderedPlayers.filter(player => player.PJ > 0).forEach(player => {
             const participant = inscritos.find(entry => entry.id === player.id);
             (participant ? participant.ids : [player.id]).forEach(id => {
-              addPoints(id, Math.max(10, 100 - 15 * index));
+              addPoints(id, Math.max(10, 100 - 15 * ((player.posicion || 1) - 1)));
             });
           });
         }

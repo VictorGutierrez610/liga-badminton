@@ -9,7 +9,7 @@ test('usa la URL activa de Apps Script como valor predeterminado', () => {
 
   assert.equal(
     instance.getWebAppUrl(),
-    'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec'
+    'https://script.google.com/macros/s/AKfycbygLCq-7tFGb-BHrPphKAWIovEAGSIxyZZ8FU8qVRsNZ7bP71sgUvzRzwwbmy3L48Smdg/exec'
   );
 });
 
@@ -18,7 +18,8 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
   try {
     for (const previousUrl of [
       'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec',
-      'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec'
+      'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec',
+      'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec'
     ]) {
       const storage = new Map([['liga_badminton_script_url', previousUrl]]);
       Object.defineProperty(globalThis, 'localStorage', {
@@ -30,7 +31,7 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
       });
 
       const instance = new BadmintonEngine();
-      const activeUrl = 'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec';
+      const activeUrl = 'https://script.google.com/macros/s/AKfycbygLCq-7tFGb-BHrPphKAWIovEAGSIxyZZ8FU8qVRsNZ7bP71sgUvzRzwwbmy3L48Smdg/exec';
 
       assert.equal(instance.getWebAppUrl(), activeUrl);
       assert.equal(storage.get('liga_badminton_script_url'), activeUrl);
@@ -143,6 +144,24 @@ test('clasifica por grupo a todos los inscritos antes de disputar los partidos',
   assert.deepEqual(standings.B.map(row => row.id).sort(), ['3', '4']);
 });
 
+test('asigna la misma posición y puntuación de liga cuando las parejas empatan en todos los desempates', () => {
+  const instance = createEngine();
+  const inscritos = ['1', '2', '3', '4'].map((id, index) => ({
+    id,
+    ids: [id],
+    nombres: [`Jugador ${index + 1}`]
+  }));
+  const matches = [
+    { ronda: 'Fase de grupos', grupo: 'A', estado: 'Jugado', ganador: 'A', idsA: ['1'], idsB: ['3'], sets: [[15, 10]] },
+    { ronda: 'Fase de grupos', grupo: 'A', estado: 'Jugado', ganador: 'A', idsA: ['2'], idsB: ['4'], sets: [[15, 10]] }
+  ];
+
+  const standings = instance.calcClasificacion(inscritos, matches, { sistema: 'LIGA' }).A;
+
+  assert.deepEqual(standings.map(row => row.posicion), [1, 1, 3, 3]);
+  assert.deepEqual(standings.map(row => row.pts), [100, 100, 70, 70]);
+});
+
 test('aplica el desempate de grupos documentado y mantiene el resultado provisional', () => {
   const instance = createEngine();
   const inscritos = [
@@ -191,6 +210,29 @@ test('resuelve el formato mixto a partir de la ronda configurada', () => {
     () => instance.getEffectiveMatchFormat({ ...instance.jornadas[0], desde: 'Ronda desconocida' }, { ronda: 'Final' }),
     /ronda válida/
   );
+});
+
+test('permite cambiar individualmente una eliminatoria mixta a un set y persiste el formato seleccionado', async () => {
+  const instance = createEngine({ formato: 'MIXTO', desde: 'Semifinal', sistema: 'ELIM' });
+  const match = {
+    id: 'final-1', jornada: 'J1', categoria: 'IM-A', ronda: 'Final',
+    orden: 1, estado: 'Pendiente', ganador: '', idsA: ['1'], idsB: ['2'], sets: []
+  };
+  let savedMatch;
+  instance.partidos = [match];
+  instance.callRemote = async (action, payload) => {
+    assert.equal(action, 'guardarResultado');
+    savedMatch = payload.partido;
+    return { success: true };
+  };
+
+  await instance.guardarResultado(match.id, [[15, 12]], 'UNO');
+
+  assert.equal(match.estado, 'Jugado');
+  assert.equal(match.ganador, 'A');
+  assert.equal(match.formato, 'UNO');
+  assert.equal(savedMatch.formato, 'UNO');
+  assert.throws(() => instance.validateScore({ ...match, formato: '' }, [[15, 12]]), /al menos dos sets/);
 });
 
 test('al cambiar de un set a mixto conserva el primer set y reabre los partidos que pasan a mejor de tres', async () => {
@@ -478,6 +520,62 @@ test('el backend valida resultados con los participantes y ronda guardados', () 
     /un solo set/
   );
   assert.equal(row[7], 'Pendiente');
+});
+
+test('el backend acepta y guarda el formato individual de un partido', () => {
+  const context = {};
+  runInNewContext(`${APPS_SCRIPT_CODE}\nthis.guardarResultado = guardarResultado;`, context);
+  const row = ['M1', 'J1', '2026-10-18', 'IM-A', 'Final', '', 1, 'Pendiente', '1', 'Jugador 1', '2', 'Jugador 2', '[]', ''];
+  const sheet = {
+    getDataRange: () => ({ getValues: () => [[], row] }),
+    getRange: (_rowNumber, columnNumber) => ({
+      setValue: value => { row[columnNumber - 1] = value; }
+    })
+  };
+  context.getOrCreateSheet = () => sheet;
+  context.getJornadas = () => [{
+    id: 'J1',
+    formato: 'MIXTO',
+    desde: 'Semifinal',
+    puntosSet: 15,
+    ganarPor2: false
+  }];
+
+  assert.equal(context.guardarResultado('M1', [[15, 12]], 'A', {
+    id: 'M1',
+    jornada: 'J1',
+    ronda: 'Final',
+    idsA: ['1'],
+    idsB: ['2'],
+    formato: 'UNO'
+  }), true);
+  assert.equal(row[7], 'Jugado');
+  assert.equal(row[12], '[[15,12]]');
+  assert.equal(row[13], 'A');
+  assert.equal(row[14], 'UNO');
+});
+
+test('añade la columna de formato individual a la hoja de partidos existente', () => {
+  const headers = [
+    'ID', 'JornadaID', 'Fecha', 'Categoria', 'Ronda', 'Grupo', 'Orden',
+    'Estado', 'IdsA', 'NomA', 'IdsB', 'NomB', 'Sets', 'Ganador'
+  ];
+  const sheet = {
+    getLastColumn: () => headers.length,
+    getRange: (_rowNumber, columnNumber) => ({
+      getValue: () => headers[columnNumber - 1],
+      setValue: value => { headers[columnNumber - 1] = value; return sheet.getRange(1, columnNumber); },
+      setFontWeight: () => {}
+    })
+  };
+  const context = {};
+  runInNewContext(`${APPS_SCRIPT_CODE}\nthis.getPartidosSheet = getPartidosSheet;`, context);
+  context.getOrCreateSheet = () => sheet;
+
+  context.getPartidosSheet();
+
+  assert.equal(headers[14], 'FormatoPartido');
+  assert.equal(headers.length, 15);
 });
 
 test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas sin sobrescribir columnas', () => {

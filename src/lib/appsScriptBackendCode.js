@@ -180,7 +180,11 @@ function getSheetsRevision() {
     ['Partidos', _hP()]
   ];
   const snapshot = tables.map(([name, headers]) =>
-    (name === 'Jornadas' ? getJornadasSheet() : getOrCreateSheet(name, headers)).getDataRange().getValues()
+    (name === 'Jornadas'
+      ? getJornadasSheet()
+      : name === 'Partidos'
+        ? getPartidosSheet()
+        : getOrCreateSheet(name, headers)).getDataRange().getValues()
   );
   const digest = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
@@ -242,7 +246,7 @@ function getAllData() {
       };
     });
 
-  const partidos = sheetRows(getOrCreateSheet('Partidos', _hP()))
+  const partidos = sheetRows(getPartidosSheet())
     .filter(r => r[0]).map(r => {
       let sets = [];
       try {
@@ -257,7 +261,8 @@ function getAllData() {
         nomA: String(r[9] || '').split(' / ').filter(Boolean),
         idsB: String(r[10] || '').split('|').filter(Boolean),
         nomB: String(r[11] || '').split(' / ').filter(Boolean),
-        sets: Array.isArray(sets) ? sets : [], ganador: r[13] || '', registrado: ''
+        sets: Array.isArray(sets) ? sets : [], ganador: r[13] || '',
+        formato: r[14] || '', registrado: ''
       };
     });
 
@@ -327,7 +332,23 @@ function quitarInscrito(idJornada, categoria, idPart) {
 
 function _hP() {
   return ['ID','JornadaID','Fecha','Categoria','Ronda','Grupo','Orden',
-          'Estado','IdsA','NomA','IdsB','NomB','Sets','Ganador'];
+          'Estado','IdsA','NomA','IdsB','NomB','Sets','Ganador','FormatoPartido'];
+}
+
+function getPartidosSheet() {
+  const headers = _hP();
+  const sheet = getOrCreateSheet('Partidos', headers);
+  if (typeof sheet.getLastColumn === 'function') {
+    const headerCell = sheet.getRange(1, headers.length);
+    const hasHeaderValue = typeof headerCell.getValue === 'function';
+    if (
+      (hasHeaderValue && headerCell.getValue() !== headers[headers.length - 1]) ||
+      (!hasHeaderValue && sheet.getLastColumn() < headers.length)
+    ) {
+      headerCell.setValue(headers[headers.length - 1]).setFontWeight('bold');
+    }
+  }
+  return sheet;
 }
 
 function _partidoRow(p) {
@@ -336,7 +357,7 @@ function _partidoRow(p) {
     p.estado||'Pendiente',
     (p.idsA||[]).join('|'), (p.nomA||[]).join(' / '),
     (p.idsB||[]).join('|'), (p.nomB||[]).join(' / '),
-    JSON.stringify(p.sets||[]), p.ganador||''
+    JSON.stringify(p.sets||[]), p.ganador||'', p.formato||''
   ];
 }
 
@@ -347,7 +368,7 @@ function crearCompeticion(idJornada, categoria, cfg, partidos) {
   sC.appendRow([idJornada, categoria, cfg.sistema, cfg.grupos||0, cfg.clasifican||0]);
 
   if (partidos && partidos.length > 0) {
-    const sP = getOrCreateSheet('Partidos', _hP());
+    const sP = getPartidosSheet();
     partidos.forEach(p => sP.appendRow(_partidoRow(p)));
   }
   return true;
@@ -357,7 +378,7 @@ function guardarPartidos(partidos) {
   if (!Array.isArray(partidos) || partidos.length === 0)
     throw new Error('No se recibieron partidos para guardar.');
 
-  const sheet = getOrCreateSheet('Partidos', _hP());
+  const sheet = getPartidosSheet();
   const data = sheet.getDataRange().getValues();
   const rowsById = new Map();
   for (let i = 1; i < data.length; i++) {
@@ -418,7 +439,9 @@ function validarResultado(partido, sets) {
     return set[0] > set[1] ? 'A' : 'B';
   });
 
-  let format = jornada.formato;
+  let format = partido.formato || jornada.formato;
+  if (partido.formato && partido.formato !== 'UNO' && partido.formato !== 'TRES')
+    throw new Error('El formato individual del partido no es válido.');
   if (format === 'MIXTO') {
     const threshold = String(jornada.desde || '').trim().toLocaleLowerCase('es');
     const roundStages = {
@@ -469,7 +492,7 @@ function validarResultado(partido, sets) {
 }
 
 function guardarResultado(idPartido, sets, ganador, partido) {
-  const sheet = getOrCreateSheet('Partidos', _hP());
+  const sheet = getPartidosSheet();
   const data = sheet.getDataRange().getValues();
   const existing = data.slice(1).find(row => String(row[0]) === String(idPartido));
   const matchForValidation = existing
@@ -478,7 +501,11 @@ function guardarResultado(idPartido, sets, ganador, partido) {
         jornada: String(existing[1]),
         ronda: existing[4],
         idsA: String(existing[8] || '').split('|').filter(Boolean),
-        idsB: String(existing[10] || '').split('|').filter(Boolean)
+        idsB: String(existing[10] || '').split('|').filter(Boolean),
+        formato: partido && String(partido.id) === String(idPartido) &&
+          Object.prototype.hasOwnProperty.call(partido, 'formato')
+          ? partido.formato || ''
+          : existing[14] || ''
       }
     : partido || null;
   if (!matchForValidation || String(matchForValidation.id) !== String(idPartido))
@@ -492,6 +519,7 @@ function guardarResultado(idPartido, sets, ganador, partido) {
       sheet.getRange(i+1,8).setValue('Jugado');
       sheet.getRange(i+1,13).setValue(JSON.stringify(sets));
       sheet.getRange(i+1,14).setValue(ganador||'');
+      sheet.getRange(i+1,15).setValue(matchForValidation.formato || '');
       return true;
     }
   }
@@ -507,7 +535,7 @@ function guardarResultado(idPartido, sets, ganador, partido) {
 }
 
 function borrarResultado(idPartido) {
-  const sheet = getOrCreateSheet('Partidos', _hP());
+  const sheet = getPartidosSheet();
   const data = sheet.getDataRange().getValues();
   for (let i=1; i<data.length; i++) {
     if (String(data[i][0])===String(idPartido)) {
@@ -560,7 +588,7 @@ function syncAll(data, expectedRevision) {
     [jornadasSheet, jornadaColumns.width, jornadaRows],
     [getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']), 5, inscritoRows],
     [getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']), 5, competicionRows],
-    [getOrCreateSheet('Partidos', _hP()), 14, partidoRows]
+    [getPartidosSheet(), 15, partidoRows]
   ];
   const backups = tables.map(([sheet, width]) => {
     const lastRow = sheet.getLastRow();
@@ -605,7 +633,9 @@ function _clearRows(sheet) {
 }
 
 function _delWhere(name, headers, predFn) {
-  const sheet = getOrCreateSheet(name, headers);
+  const sheet = name === 'Partidos'
+    ? getPartidosSheet()
+    : getOrCreateSheet(name, headers);
   const data = sheet.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
     if (predFn(data[i])) sheet.deleteRow(i + 1);

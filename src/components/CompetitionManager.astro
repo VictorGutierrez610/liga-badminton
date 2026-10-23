@@ -312,6 +312,14 @@
     </div>
 
     <form id="scoreEntryForm">
+      <div id="scoreMatchFormatControl" style="display:none; margin-bottom:14px;">
+        <label class="form-label" for="scoreMatchFormat">Formato de este partido</label>
+        <select id="scoreMatchFormat" class="form-select">
+          <option value="JORNADA">Formato de la jornada</option>
+          <option value="UNO">Mejor de 1 set</option>
+          <option value="TRES">Mejor de 3 sets</option>
+        </select>
+      </div>
       <div class="score-sets-grid" style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
         <div id="set1Row" class="flex-between glass-card" style="padding:10px 14px; margin:0;">
           <span style="font-weight:600; font-size:14px;">Set 1</span>
