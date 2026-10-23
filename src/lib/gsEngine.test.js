@@ -162,6 +162,59 @@ test('asigna la misma posición y puntuación de liga cuando las parejas empatan
   assert.deepEqual(standings.map(row => row.pts), [100, 100, 70, 70]);
 });
 
+test('comparte puestos del ranking general cuando los puntos y los desempates de toda la liga coinciden', () => {
+  const instance = createEngine();
+  instance.jornadas = [{ id: 'J1', fecha: '2026-10-18' }];
+  const stats = [
+    {
+      id: '1',
+      nombre: 'Naila Rolo',
+      sexo: 'F',
+      categoria: 'A',
+      participaciones: new Set(['DF']),
+      porCategoriaJornada: { DF: { J1: 115 } },
+      PG: 3,
+      PP: 1,
+      PF: 89,
+      PC: 70
+    },
+    {
+      id: '2',
+      nombre: 'Paula',
+      sexo: 'F',
+      categoria: 'A',
+      participaciones: new Set(['DF']),
+      porCategoriaJornada: { DF: { J1: 115 } },
+      PG: 3,
+      PP: 1,
+      PF: 89,
+      PC: 70
+    },
+    {
+      id: '3',
+      nombre: 'Marta',
+      sexo: 'F',
+      categoria: 'A',
+      participaciones: new Set(['DF']),
+      porCategoriaJornada: { DF: { J1: 115 } },
+      PG: 2,
+      PP: 1,
+      PF: 80,
+      PC: 70
+    }
+  ];
+
+  const ranking = instance.buildRankingCategory(
+    'DF',
+    'DF',
+    '',
+    'F',
+    Object.fromEntries(stats.map(player => [player.id, player]))
+  ).jugadores;
+
+  assert.deepEqual(ranking.map(player => player.pos), [1, 1, 3]);
+});
+
 test('aplica el desempate de grupos documentado y mantiene el resultado provisional', () => {
   const instance = createEngine();
   const inscritos = [

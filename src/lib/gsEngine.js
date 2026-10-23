@@ -2187,18 +2187,25 @@ export class BadmintonEngine {
           PC: st.PC,
           difPuntos: st.PF - st.PC
         };
-      })
-      .sort((a, b) =>
+      });
+
+    const compareRankingResults = (a, b) =>
         b.total - a.total ||
         b.PG - a.PG ||
         a.PP - b.PP ||
         b.difPartidos - a.difPartidos ||
         b.difPuntos - a.difPuntos ||
-        b.PF - a.PF ||
-        a.nombre.localeCompare(b.nombre, 'es')
-      );
+        b.PF - a.PF;
 
-    jugadores.forEach((j, i) => { j.pos = i + 1; });
+    jugadores.sort((a, b) =>
+      compareRankingResults(a, b) || a.nombre.localeCompare(b.nombre, 'es')
+    );
+    jugadores.forEach((player, index) => {
+      const previous = jugadores[index - 1];
+      player.pos = previous && compareRankingResults(previous, player) === 0
+        ? previous.pos
+        : index + 1;
+    });
 
     return {
       categoria: catName,
