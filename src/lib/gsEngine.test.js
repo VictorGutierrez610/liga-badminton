@@ -158,8 +158,8 @@ test('asigna la misma posición y puntuación de liga cuando las parejas empatan
 
   const standings = instance.calcClasificacion(inscritos, matches, { sistema: 'LIGA' }).A;
 
-  assert.deepEqual(standings.map(row => row.posicion), [1, 1, 3, 3]);
-  assert.deepEqual(standings.map(row => row.pts), [100, 100, 70, 70]);
+  assert.deepEqual(standings.map(row => row.posicion), [1, 1, 2, 2]);
+  assert.deepEqual(standings.map(row => row.pts), [100, 100, 85, 85]);
 });
 
 test('comparte puestos del ranking general cuando los puntos y los desempates de toda la liga coinciden', () => {
@@ -212,7 +212,7 @@ test('comparte puestos del ranking general cuando los puntos y los desempates de
     Object.fromEntries(stats.map(player => [player.id, player]))
   ).jugadores;
 
-  assert.deepEqual(ranking.map(player => player.pos), [1, 1, 3]);
+  assert.deepEqual(ranking.map(player => player.pos), [1, 1, 2]);
 });
 
 test('aplica el desempate de grupos documentado y mantiene el resultado provisional', () => {

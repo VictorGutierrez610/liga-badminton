@@ -1232,12 +1232,11 @@ export class BadmintonEngine {
     );
     ranking.forEach((player, index) => {
       const previous = ranking[index - 1];
-      player.posicion = previous &&
+      const tied = previous &&
         previous.grupoVictorias === player.grupoVictorias &&
         previous.diffPuntosGrupo === player.diffPuntosGrupo &&
-        previous.PF === player.PF
-        ? previous.posicion
-        : index + 1;
+        previous.PF === player.PF;
+      player.posicion = tied ? previous.posicion : (previous ? previous.posicion + 1 : 1);
     });
     return { 'Clasificación individual': ranking };
   }
@@ -1744,12 +1743,11 @@ export class BadmintonEngine {
 
       grupos[g].forEach((s, idx) => {
         const previous = grupos[g][idx - 1];
-        s.posicion = previous &&
+        const tied = previous &&
           previous.grupoVictorias === s.grupoVictorias &&
           previous.diffSetsGrupo === s.diffSetsGrupo &&
-          previous.diffPuntosGrupo === s.diffPuntosGrupo
-          ? previous.posicion
-          : idx + 1;
+          previous.diffPuntosGrupo === s.diffPuntosGrupo;
+        s.posicion = tied ? previous.posicion : (previous ? previous.posicion + 1 : 1);
         if (comp && comp.sistema === 'LIGA') {
           s.pts = Math.max(10, 100 - 15 * (s.posicion - 1));
         } else {
@@ -2204,7 +2202,7 @@ export class BadmintonEngine {
       const previous = jugadores[index - 1];
       player.pos = previous && compareRankingResults(previous, player) === 0
         ? previous.pos
-        : index + 1;
+        : (previous ? previous.pos + 1 : 1);
     });
 
     return {
