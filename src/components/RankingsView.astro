@@ -20,6 +20,12 @@
       </select>
 
       <input type="text" id="searchRankPlayer" class="form-control" placeholder="Buscar jugador..." style="max-width:200px;" />
+      <div id="mixedPointsImport" style="display:none;">
+        <label for="mixedPointsFile" class="text-muted" style="font-size:12px;">Importar puntos DX (JSON/CSV)</label>
+        <input type="file" id="mixedPointsFile" class="form-control" accept=".json,.csv,.txt,application/json,text/csv" />
+        <small class="text-muted" style="font-size:11px;">JSON: lista con jornadaId, jugadorId y puntos. CSV: jornadaId;jugadorId;puntos.</small>
+        <small id="mixedPointsImportStatus" class="text-muted" role="status"></small>
+      </div>
     </div>
 
     <div class="flex-gap">
@@ -53,7 +59,8 @@
     </div>
 
     <div class="text-muted" style="font-size:12px; margin-top:14px; line-height:1.6; padding-top:12px; border-top:1px solid rgba(255,255,255,0.05);">
-      💡 <b>Puntos por jornada:</b> Campeón 100, subcampeón 85, semifinalistas 70, cuartos 55, octavos 40 y dieciseisavos 25. En fase de grupos se suman 10 puntos base y 5 por victoria, además de los puntos de la ronda eliminatoria alcanzada. En liga todos contra todos se otorgan 100 puntos al primero y 15 menos por puesto, con un mínimo de 10.<br />
+      💡 <b>Puntos por jornada:</b> Campeón 125, subcampeón 110, semifinalistas 95, cuartos 80, octavos 40 y dieciseisavos 25. Quien queda eliminado en grupos obtiene 10 puntos base y 5 por victoria; quien avanza a eliminatorias recibe solo los puntos de su ronda máxima. Una final pendiente conserva los 95 puntos de semifinalista hasta que se registre su resultado. En liga todos contra todos se otorgan 100 puntos al primero y 15 menos por puesto, con un mínimo de 10.<br />
+      <b>Dobles mixtos:</b> Los puntos precalculados se pueden importar desde un JSON o CSV exportado desde Excel. La importación reemplaza los puntos mixtos precalculados existentes y se guarda con la competición en Google Sheets.<br />
       <b>Clasificación:</b> Cada persona suma sus puntos individualmente, también en dobles aunque cambie de pareja. Se cuentan las <b>3 mejores jornadas</b> de cada categoría. Los desempates usan los partidos de toda la liga: victorias, derrotas, diferencia de partidos, diferencia de puntos y puntos a favor.<br />
       <b>Categorías:</b> Individual masculino y femenino A/B; dobles masculino, femenino y mixto general.
     </div>

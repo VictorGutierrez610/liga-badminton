@@ -215,6 +215,121 @@ test('comparte puestos del ranking general cuando los puntos y los desempates de
   assert.deepEqual(ranking.map(player => player.pos), [1, 1, 2]);
 });
 
+test('aplica la escala fija de eliminatorias y conserva 95 puntos mientras la final está pendiente', () => {
+  const instance = createEngine({ sistema: 'GRUPOS' });
+  instance.socios = Array.from({ length: 8 }, (_, index) => ({
+    id: String(index + 1),
+    nombre: `Jugador ${index + 1}`,
+    apellidos: 'Prueba',
+    sexo: 'M',
+    categoria: 'A'
+  }));
+  instance.inscritos['J1_IM-A'] = instance.socios.map(player => ({
+    id: player.id,
+    ids: [player.id],
+    nombres: [`${player.nombre} ${player.apellidos}`]
+  }));
+  instance.competiciones['J1_IM-A'] = { sistema: 'GRUPOS' };
+  instance.partidos = [
+    { id: 'g1', jornada: 'J1', categoria: 'IM-A', ronda: 'Fase de grupos', estado: 'Jugado', ganador: 'A', idsA: ['3'], idsB: ['4'], sets: [[15, 10]] },
+    { id: 'g2', jornada: 'J1', categoria: 'IM-A', ronda: 'Fase de grupos', estado: 'Jugado', ganador: 'A', idsA: ['3'], idsB: ['5'], sets: [[15, 10]] },
+    { id: 'g3', jornada: 'J1', categoria: 'IM-A', ronda: 'Fase de grupos', estado: 'Jugado', ganador: 'A', idsA: ['1'], idsB: ['5'], sets: [[15, 10]] },
+    { id: 'qf', jornada: 'J1', categoria: 'IM-A', ronda: 'Cuartos', estado: 'Jugado', ganador: 'A', idsA: ['1'], idsB: ['7'], sets: [[15, 10]] },
+    { id: 'sf', jornada: 'J1', categoria: 'IM-A', ronda: 'Semifinal', estado: 'Jugado', ganador: 'B', idsA: ['1'], idsB: ['6'], sets: [[10, 15]] },
+    { id: 'final', jornada: 'J1', categoria: 'IM-A', ronda: 'Final', estado: 'Pendiente', ganador: '', idsA: ['6'], idsB: ['2'], sets: [] }
+  ];
+
+  const getPoints = () => Object.fromEntries(
+    instance.getRanking().temporadas[0].categorias['IM-A'].jugadores
+      .map(player => [player.id, player.pts[0]])
+  );
+  const pendingPoints = getPoints();
+  assert.equal(pendingPoints['1'], 95);
+  assert.equal(pendingPoints['2'], 95);
+  assert.equal(pendingPoints['3'], 20);
+  assert.equal(pendingPoints['7'], 80);
+
+  instance.partidos.find(match => match.id === 'final').estado = 'Jugado';
+  instance.partidos.find(match => match.id === 'final').ganador = 'A';
+  const finalPoints = getPoints();
+  assert.equal(finalPoints['6'], 125);
+  assert.equal(finalPoints['2'], 110);
+  assert.equal(finalPoints['1'], 95);
+});
+
+test('excluye al comodín del ranking femenino y asigna los puntos de pareja a su compañera', () => {
+  const instance = createEngine({ sistema: 'GRUPOS' });
+  instance.socios = [
+    { id: 'wildcard', nombre: 'Pedrito', apellidos: '2', sexo: 'F' },
+    { id: 'partner', nombre: 'Ana', apellidos: 'Prueba', sexo: 'F' },
+    { id: 'other1', nombre: 'Bea', apellidos: 'Prueba', sexo: 'F' },
+    { id: 'other2', nombre: 'Cris', apellidos: 'Prueba', sexo: 'F' }
+  ];
+  instance.inscritos['J1_DF'] = [
+    { id: 'partner+wildcard', ids: ['wildcard', 'partner'], nombres: ['Pedrito 2', 'Ana Prueba'] },
+    { id: 'other1+other2', ids: ['other1', 'other2'], nombres: ['Bea Prueba', 'Cris Prueba'] }
+  ];
+  instance.competiciones['J1_DF'] = { sistema: 'GRUPOS' };
+  instance.partidos = [{
+    id: 'df1',
+    jornada: 'J1',
+    categoria: 'DF',
+    ronda: 'Fase de grupos',
+    estado: 'Jugado',
+    ganador: 'A',
+    idsA: ['wildcard', 'partner'],
+    nomA: ['Pedrito 2', 'Ana Prueba'],
+    idsB: ['other1', 'other2'],
+    nomB: ['Bea Prueba', 'Cris Prueba'],
+    sets: [[15, 10]]
+  }];
+
+  const players = instance.getRanking().temporadas[0].categorias.DF.jugadores;
+
+  assert.equal(players.some(player => player.id === 'wildcard'), false);
+  assert.equal(players.find(player => player.id === 'partner').pts[0], 15);
+});
+
+test('importa puntos mixtos desde JSON o CSV y omite el cálculo automático de la competición', async () => {
+  const instance = createEngine({ sistema: 'GRUPOS' });
+  instance.remoteRevision = 'revision-base';
+  instance.socios = [
+    { id: 'm1', nombre: 'Mario', apellidos: 'Prueba', sexo: 'M' },
+    { id: 'f1', nombre: 'Ana', apellidos: 'Prueba', sexo: 'F' },
+    { id: 'm2', nombre: 'Luis', apellidos: 'Prueba', sexo: 'M' },
+    { id: 'f2', nombre: 'Bea', apellidos: 'Prueba', sexo: 'F' }
+  ];
+  instance.competiciones['J1_DX'] = { sistema: 'GRUPOS' };
+  instance.partidos = [{
+    id: 'dx1',
+    jornada: 'J1',
+    categoria: 'DX',
+    ronda: 'Fase de grupos',
+    estado: 'Jugado',
+    ganador: 'A',
+    idsA: ['m1', 'f1'],
+    nomA: ['Mario Prueba', 'Ana Prueba'],
+    idsB: ['m2', 'f2'],
+    nomB: ['Luis Prueba', 'Bea Prueba'],
+    sets: [[15, 10]]
+  }];
+
+  const jsonResult = await instance.importarPuntosMixtos(JSON.stringify([
+    { jornadaId: 'J1', jugadorId: 'm1', puntos: 77 },
+    { jornadaId: 'J1', nombre: 'Ana Prueba', puntos: 92 }
+  ]));
+  assert.equal(jsonResult.count, 2);
+  assert.equal(instance.lastSyncedSnapshot.competiciones['J1_DX'].puntosPrecalculados.m1, 77);
+
+  const csvResult = await instance.importarPuntosMixtos(
+    'jornadaId;jugadorId;puntos\r\nJ1;m1;61\r\nJ1;f1;83'
+  );
+  assert.equal(csvResult.count, 2);
+  const players = instance.getRanking().temporadas[0].categorias.DX.jugadores;
+  assert.equal(players.find(player => player.id === 'm1').pts[0], 61);
+  assert.equal(players.find(player => player.id === 'f1').pts[0], 83);
+});
+
 test('aplica el desempate de grupos documentado y mantiene el resultado provisional', () => {
   const instance = createEngine();
   const inscritos = [
@@ -506,6 +621,28 @@ test('rechaza una sincronización que confirma el guardado pero pierde la marca 
   assert.equal(instance.lastSyncStatus, 'remote-error');
 });
 
+test('rechaza una sincronización que pierde los puntos precalculados de dobles mixtos', async () => {
+  const instance = createEngine();
+  instance.remoteRevision = 'revision-base';
+  instance.competiciones['J1_DX'] = {
+    sistema: 'GRUPOS',
+    puntosPrecalculados: { m1: 125 }
+  };
+  instance.syncAllToSheets = BadmintonEngine.prototype.syncAllToSheets.bind(instance);
+  instance.callRemote = async action => action === 'syncAll'
+    ? { revision: 'revision-guardada' }
+    : {
+        revision: 'revision-guardada',
+        jornadas: instance.jornadas,
+        competiciones: { 'J1_DX': { sistema: 'GRUPOS', puntosPrecalculados: {} } }
+      };
+
+  await assert.rejects(instance.syncAllToSheets(), /no guardó los puntos precalculados/);
+
+  assert.equal(instance.localChangesPending, true);
+  assert.equal(instance.lastSyncStatus, 'remote-error');
+});
+
 test('requiere confirmación antes de reemplazar una versión remota divergente', async () => {
   const instance = new BadmintonEngine();
   instance.saveState = () => {};
@@ -629,6 +766,52 @@ test('añade la columna de formato individual a la hoja de partidos existente', 
 
   assert.equal(headers[14], 'FormatoPartido');
   assert.equal(headers.length, 15);
+});
+
+test('añade la columna de puntos precalculados a Competiciones sin alterar sus columnas existentes', () => {
+  const headers = ['JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican'];
+  const sheet = {
+    getLastColumn: () => headers.length,
+    getRange: (_rowNumber, columnNumber) => ({
+      getValue: () => headers[columnNumber - 1],
+      setValue: value => { headers[columnNumber - 1] = value; return sheet.getRange(1, columnNumber); },
+      setFontWeight: () => {}
+    })
+  };
+  const context = {};
+  runInNewContext(`${APPS_SCRIPT_CODE}\nthis.getCompeticionesSheet = getCompeticionesSheet;`, context);
+  context.getOrCreateSheet = () => sheet;
+
+  context.getCompeticionesSheet();
+
+  assert.deepEqual(headers, [
+    'JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican', 'PuntosPrecalculados'
+  ]);
+});
+
+test('lee puntos precalculados de dobles mixtos desde la hoja Competiciones', () => {
+  const competitionSheet = {
+    getDataRange: () => ({
+      getValues: () => [
+        ['JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican', 'PuntosPrecalculados'],
+        ['J1', 'DX', 'GRUPOS', 1, 0, '{"m1":125,"f1":110}']
+      ]
+    })
+  };
+  const emptySheet = { getDataRange: () => ({ getValues: () => [[]] }) };
+  const context = {};
+  runInNewContext(`${APPS_SCRIPT_CODE}\nthis.getAllData = getAllData;`, context);
+  context.getCompeticionesSheet = () => competitionSheet;
+  context.getPartidosSheet = () => emptySheet;
+  context.getOrCreateSheet = () => emptySheet;
+  context.getSocios = () => [];
+  context.getJornadas = () => [];
+  context.getSheetsRevision = () => 'revision-test';
+
+  const data = context.getAllData();
+
+  assert.equal(data.competiciones['J1_DX'].puntosPrecalculados.m1, 125);
+  assert.equal(data.competiciones['J1_DX'].puntosPrecalculados.f1, 110);
 });
 
 test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas sin sobrescribir columnas', () => {

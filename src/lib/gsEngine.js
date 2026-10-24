@@ -55,6 +55,95 @@ const ROUND_STAGE = {
   Final: 5
 };
 const ROTATING_QUALIFYING_ROUNDS = 6;
+const WILDCARD_FEMALE_NAMES = new Set(['pedrito', 'pedrito 2']);
+
+function normalizeRankingName(value) {
+  return String(value || '').trim().toLocaleLowerCase('es')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function parseMixedRankingImport(input) {
+  if (Array.isArray(input)) return input;
+  if (input && typeof input === 'object') {
+    const records = input.puntosPrecalculados || input.puntos || input.records;
+    if (Array.isArray(records)) return records;
+    throw new Error('El JSON debe contener una lista en "puntosPrecalculados" o "puntos".');
+  }
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error('El archivo de puntos mixtos está vacío.');
+  }
+
+  const text = input.replace(/^\uFEFF/, '').trim();
+  if (text[0] === '[' || text[0] === '{') {
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error('El JSON de puntos mixtos no tiene un formato válido.');
+    }
+    return parseMixedRankingImport(parsed);
+  }
+
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  const delimiters = [',', ';', '\t'];
+  const delimiter = delimiters
+    .map(value => ({ value, count: firstLine.split(value).length - 1 }))
+    .sort((a, b) => b.count - a.count)[0];
+  if (!delimiter || delimiter.count === 0) {
+    throw new Error('El CSV debe incluir encabezados jornadaId, jugadorId o nombre, y puntos.');
+  }
+
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') {
+        cell += '"';
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === delimiter.value && !quoted) {
+      row.push(cell.trim());
+      cell = '';
+    } else if ((character === '\n' || character === '\r') && !quoted) {
+      if (character === '\r' && text[index + 1] === '\n') index++;
+      row.push(cell.trim());
+      if (row.some(value => value)) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += character;
+    }
+  }
+  row.push(cell.trim());
+  if (row.some(value => value)) rows.push(row);
+
+  if (rows.length < 2) {
+    throw new Error('El CSV debe incluir al menos una fila de puntos además de los encabezados.');
+  }
+  const headers = rows.shift().map(value => normalizeRankingName(value)
+    .replace(/[^a-z0-9]/g, ''));
+  const column = aliases => headers.findIndex(header => aliases.includes(header));
+  const jornadaColumn = column(['jornadaid', 'jornada']);
+  const playerIdColumn = column(['jugadorid', 'playerid', 'id']);
+  const playerNameColumn = column(['nombre', 'jugador', 'playername']);
+  const pointsColumn = column(['puntos', 'points']);
+  if (jornadaColumn < 0 || (playerIdColumn < 0 && playerNameColumn < 0) || pointsColumn < 0) {
+    throw new Error('El CSV debe incluir jornadaId, jugadorId o nombre, y puntos.');
+  }
+
+  return rows.map(values => ({
+    jornadaId: values[jornadaColumn],
+    jugadorId: playerIdColumn >= 0 ? values[playerIdColumn] : '',
+    nombre: playerNameColumn >= 0 ? values[playerNameColumn] : '',
+    puntos: values[pointsColumn]
+  }));
+}
 
 export const INITIAL_SOCIOS = [
   { id: '1', nombre: 'Molaye', apellidos: 'Mohamed Ahid', sexo: 'M', categoria: 'B' },
@@ -871,7 +960,11 @@ export class BadmintonEngine {
       const result = await this.callRemote('syncAll', { data }, { strict: true });
       if (result?.revision) this.remoteRevision = result.revision;
       const rotatingJornadas = data.jornadas.filter(jornada => jornada.parejasRotativas);
-      if (rotatingJornadas.length) {
+      const importedMixedCompetitions = Object.entries(data.competiciones || {})
+        .filter(([key, competition]) =>
+          key.endsWith('_DX') && Object.keys(competition.puntosPrecalculados || {}).length
+        );
+      if (rotatingJornadas.length || importedMixedCompetitions.length) {
         let remote;
         try {
           remote = await this.callRemote('getAllData', {}, { strict: true });
@@ -880,7 +973,10 @@ export class BadmintonEngine {
           this.lastSyncStatus = 'remote-error';
           this.lastRemoteError = error.message || String(error);
           this.saveState();
-          throw new Error(`No se pudo verificar que Google Sheets conservara las parejas rotativas: ${this.lastRemoteError}`);
+          const dataToVerify = rotatingJornadas.length
+            ? 'las parejas rotativas o los puntos mixtos'
+            : 'los puntos precalculados de dobles mixtos';
+          throw new Error(`No se pudo verificar que Google Sheets conservara ${dataToVerify}: ${this.lastRemoteError}`);
         }
         const remoteJornadasById = new Map(
           (remote?.jornadas || []).map(jornada => [String(jornada.id), jornada])
@@ -888,10 +984,22 @@ export class BadmintonEngine {
         const missingFlags = rotatingJornadas
           .filter(jornada => !remoteJornadasById.get(String(jornada.id))?.parejasRotativas)
           .map(jornada => String(jornada.id));
-        if (missingFlags.length) {
+        const missingMixedPoints = importedMixedCompetitions.filter(([key, competition]) =>
+          JSON.stringify(remote?.competiciones?.[key]?.puntosPrecalculados || {}) !==
+            JSON.stringify(competition.puntosPrecalculados || {})
+        ).map(([key]) => key);
+        if (missingFlags.length || missingMixedPoints.length) {
           this.localChangesPending = true;
           this.lastSyncStatus = 'remote-error';
-          this.lastRemoteError = `Google Sheets no guardó la marca de parejas rotativas de ${missingFlags.join(', ')}. Despliega el Apps Script actualizado y vuelve a sincronizar.`;
+          const missingData = [
+            missingFlags.length
+              ? `la marca de parejas rotativas de ${missingFlags.join(', ')}`
+              : '',
+            missingMixedPoints.length
+              ? `los puntos precalculados de ${missingMixedPoints.join(', ')}`
+              : ''
+          ].filter(Boolean).join(' y ');
+          this.lastRemoteError = `Google Sheets no guardó ${missingData}. Despliega el Apps Script actualizado y vuelve a sincronizar.`;
           this.saveState();
           throw new Error(this.lastRemoteError);
         }
@@ -999,7 +1107,9 @@ export class BadmintonEngine {
       if (!actualCompetition ||
           actualCompetition.sistema !== expectedCompetition.sistema ||
           Number(actualCompetition.grupos || 0) !== Number(expectedCompetition.grupos || 0) ||
-          Number(actualCompetition.clasifican || 0) !== Number(expectedCompetition.clasifican || 0)) {
+          Number(actualCompetition.clasifican || 0) !== Number(expectedCompetition.clasifican || 0) ||
+          JSON.stringify(actualCompetition.puntosPrecalculados || {}) !==
+            JSON.stringify(expectedCompetition.puntosPrecalculados || {})) {
         return false;
       }
     }
@@ -1984,11 +2094,83 @@ export class BadmintonEngine {
     return this.getRanking();
   }
 
+  async importarPuntosMixtos(input) {
+    const records = parseMixedRankingImport(input);
+    if (!records.length) throw new Error('No se recibieron puntos mixtos para importar.');
+
+    const updatedCompetitions = { ...this.competiciones };
+    Object.entries(updatedCompetitions).forEach(([key, competition]) => {
+      if (key.slice(key.indexOf('_') + 1) === 'DX') {
+        updatedCompetitions[key] = { ...competition, puntosPrecalculados: {} };
+      }
+    });
+
+    const importedKeys = new Set();
+    records.forEach((record, index) => {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) {
+        throw new Error(`La fila ${index + 1} de la importación no tiene un formato válido.`);
+      }
+      if (record.categoria && String(record.categoria).toUpperCase() !== 'DX') {
+        throw new Error(`La fila ${index + 1} no pertenece a dobles mixtos (DX).`);
+      }
+
+      const jornadaId = String(record.jornadaId ?? record.jornada ?? '').trim();
+      if (!jornadaId || !this.jornadas.some(jornada => String(jornada.id) === jornadaId)) {
+        throw new Error(`La fila ${index + 1} indica una jornada inexistente.`);
+      }
+      const competitionKey = `${jornadaId}_DX`;
+      if (!updatedCompetitions[competitionKey]) {
+        throw new Error(`No existe una competición DX para la jornada ${jornadaId}.`);
+      }
+
+      const suppliedId = String(record.jugadorId ?? record.playerId ?? record.id ?? '').trim();
+      const suppliedName = normalizeRankingName(record.nombre ?? record.jugador ?? record.playerName);
+      let player = suppliedId
+        ? this.socios.find(socio => String(socio.id) === suppliedId)
+        : null;
+      if (!player && suppliedName) {
+        const candidates = this.socios.filter(socio =>
+          normalizeRankingName(`${socio.nombre} ${socio.apellidos}`) === suppliedName ||
+          normalizeRankingName(socio.nombre) === suppliedName
+        );
+        const uniqueCandidates = [...new Map(candidates.map(socio => [String(socio.id), socio])).values()];
+        if (uniqueCandidates.length !== 1) {
+          throw new Error(`No se pudo identificar de forma única al jugador "${record.nombre || record.jugador || record.playerName}".`);
+        }
+        player = uniqueCandidates[0];
+      }
+      if (!player) {
+        throw new Error(`La fila ${index + 1} indica un jugador inexistente.`);
+      }
+
+      const points = Number(String(record.puntos ?? record.points ?? '').trim().replace(',', '.'));
+      if (!Number.isFinite(points) || points < 0) {
+        throw new Error(`La fila ${index + 1} contiene una puntuación no válida.`);
+      }
+      const entryKey = `${jornadaId}_${player.id}`;
+      if (importedKeys.has(entryKey)) {
+        throw new Error(`El jugador ${player.nombre} aparece más de una vez en la jornada ${jornadaId}.`);
+      }
+      importedKeys.add(entryKey);
+      updatedCompetitions[competitionKey].puntosPrecalculados[player.id] = points;
+    });
+
+    await this.persistFullStateOrLocal({
+      ...this.getStateSnapshot(),
+      competiciones: updatedCompetitions
+    });
+    this.competiciones = updatedCompetitions;
+    this.saveState();
+    return { count: importedKeys.size };
+  }
+
   getRanking() {
     const MEJORES = 3;
     const playerStats = {};
+    const namesByPlayerId = new Map();
 
     this.socios.forEach(s => {
+      namesByPlayerId.set(String(s.id), normalizeRankingName(`${s.nombre} ${s.apellidos}`));
       playerStats[s.id] = {
         id: s.id,
         nombre: `${s.nombre} ${s.apellidos}`,
@@ -1999,6 +2181,33 @@ export class BadmintonEngine {
         PG: 0, PP: 0, PF: 0, PC: 0
       };
     });
+
+    Object.entries(this.inscritos).forEach(([key, participants]) => {
+      const category = key.slice(key.indexOf('_') + 1);
+      if (!['IF-A', 'IF-B', 'DF'].includes(category) || !Array.isArray(participants)) return;
+      participants.forEach(participant => {
+        (participant.ids || []).forEach((id, index) => {
+          const name = participant.nombres?.[index] ||
+            ((participant.ids || []).length === 1 ? participant.nombres?.[0] : '');
+          if (name) namesByPlayerId.set(String(id), normalizeRankingName(name));
+        });
+      });
+    });
+    this.partidos.forEach(match => {
+      if (!['IF-A', 'IF-B', 'DF'].includes(match.categoria)) return;
+      ['A', 'B'].forEach(side => {
+        (match[`ids${side}`] || []).forEach((id, index) => {
+          const name = match[`nom${side}`]?.[index] ||
+            ((match[`ids${side}`] || []).length === 1 ? match[`nom${side}`]?.[0] : '');
+          if (name) namesByPlayerId.set(String(id), normalizeRankingName(name));
+        });
+      });
+    });
+    const wildcardFemalePlayerIds = new Set(
+      [...namesByPlayerId.entries()]
+        .filter(([, name]) => WILDCARD_FEMALE_NAMES.has(name))
+        .map(([id]) => id)
+    );
 
     this.partidos.forEach(p => {
       if (p.estado !== 'Jugado' || !Array.isArray(p.sets)) return;
@@ -2036,12 +2245,29 @@ export class BadmintonEngine {
       );
       const inscritos = this.inscritos[key] || [];
       const pointsByPlayer = new Map();
+      const femaleRanking = ['IF-A', 'IF-B', 'DF'].includes(categoria);
       const addPoints = (playerId, points) => {
-        if (!playerStats[playerId]) return;
+        if (!playerStats[playerId] ||
+            (femaleRanking && wildcardFemalePlayerIds.has(String(playerId)))) return;
         pointsByPlayer.set(playerId, (pointsByPlayer.get(playerId) || 0) + points);
       };
 
-      if (comp.sistema === 'LIGA') {
+      const importedMixedPoints = categoria === 'DX' && comp.puntosPrecalculados &&
+        Object.keys(comp.puntosPrecalculados).length
+        ? comp.puntosPrecalculados
+        : null;
+      if (importedMixedPoints) {
+        Object.entries(importedMixedPoints).forEach(([playerId, points]) => {
+          const numericPoints = Number(points);
+          if (!playerStats[playerId]) {
+            throw new Error(`La competición ${jornadaId}_DX tiene puntos para el socio inexistente ${playerId}.`);
+          }
+          if (!Number.isFinite(numericPoints) || numericPoints < 0) {
+            throw new Error(`La competición ${jornadaId}_DX contiene una puntuación precalculada no válida.`);
+          }
+          addPoints(playerId, numericPoints);
+        });
+      } else if (comp.sistema === 'LIGA') {
         const groupMatches = matches.filter(p => p.ronda === 'Fase de grupos');
         const playedMatches = groupMatches.filter(p => p.estado === 'Jugado');
         if (playedMatches.length) {
@@ -2078,8 +2304,9 @@ export class BadmintonEngine {
           Semifinal: 4,
           Final: 5
         };
-        const pointsByStage = { 1: 25, 2: 40, 3: 55, 4: 70, 5: 85 };
+        const pointsByStage = { 1: 25, 2: 40, 3: 80, 4: 95 };
         const reachedStage = new Map();
+        const knockoutPoints = new Map();
         const advance = (playerIds, stage) => {
           playerIds.forEach(id => {
             reachedStage.set(id, Math.max(reachedStage.get(id) || 0, stage));
@@ -2089,34 +2316,35 @@ export class BadmintonEngine {
         matches.filter(p => p.ronda !== 'Fase de grupos').forEach(match => {
           const stage = roundStage[match.ronda];
           if (!stage) return;
-          if (match.estado !== 'Jugado' && match.estado !== 'Bye') return;
           const idsA = match.idsA || [];
           const idsB = match.idsB || [];
+          if (match.estado !== 'Jugado' && match.estado !== 'Bye' &&
+              !(stage === 5 && match.estado === 'Pendiente')) return;
           advance([...idsA, ...idsB], stage);
 
-          if (match.estado === 'Jugado' || match.estado === 'Bye') {
-            const winnerIds = match.ganador === 'A' ? idsA : match.ganador === 'B' ? idsB : [];
-            if (stage === 5 && match.estado === 'Jugado') {
-              const loserIds = match.ganador === 'A' ? idsB : idsA;
-              winnerIds.forEach(id => addPoints(id, 100));
-              loserIds.forEach(id => addPoints(id, 85));
-            } else if (stage < 5) {
-              advance(winnerIds, stage + 1);
-            }
+          const winnerIds = match.ganador === 'A' ? idsA : match.ganador === 'B' ? idsB : [];
+          if (stage === 5 && match.estado === 'Jugado' && winnerIds.length) {
+            const loserIds = match.ganador === 'A' ? idsB : idsA;
+            winnerIds.forEach(id => knockoutPoints.set(id, 125));
+            loserIds.forEach(id => knockoutPoints.set(id, 110));
+          } else if (stage < 5 && (match.estado === 'Jugado' || match.estado === 'Bye')) {
+            advance(winnerIds, stage + 1);
           }
         });
 
         reachedStage.forEach((stage, playerId) => {
-          if (stage < 5) addPoints(playerId, pointsByStage[stage]);
-          else if (!matches.some(p => p.ronda === 'Final' && p.estado === 'Jugado' &&
-            ((p.idsA || []).includes(playerId) || (p.idsB || []).includes(playerId)))) {
-            addPoints(playerId, pointsByStage[5]);
-          }
+          if (knockoutPoints.has(playerId)) return;
+          const pointsStage = stage === 5 ? 4 : stage;
+          knockoutPoints.set(playerId, pointsByStage[pointsStage]);
+        });
+        knockoutPoints.forEach((points, playerId) => {
+          pointsByPlayer.set(playerId, points);
         });
       }
 
       pointsByPlayer.forEach((points, playerId) => {
         const st = playerStats[playerId];
+        st.participaciones.add(categoria);
         if (!st.porCategoriaJornada[categoria]) st.porCategoriaJornada[categoria] = {};
         st.porCategoriaJornada[categoria][jornadaId] = points;
       });
@@ -2150,6 +2378,7 @@ export class BadmintonEngine {
   buildRankingCategory(catName, tipo, nivel, sexo, playerStats) {
     const jornadasList = this.jornadas.map((j, i) => ({ n: i + 1, id: j.id, fecha: j.fecha }));
     const MEJORES = 3;
+    const isFemaleRanking = ['IF-A', 'IF-B', 'DF'].includes(catName);
 
     const jugadores = Object.values(playerStats)
       .filter(st => {
@@ -2157,7 +2386,9 @@ export class BadmintonEngine {
         const matchesSex = !sexo || (sexo === 'M'
           ? ['M', 'MASCULINO', 'H', 'HOMBRE'].includes(playerSex)
           : ['F', 'FEMENINO', 'MUJER'].includes(playerSex));
-        return matchesSex && (!nivel || String(st.categoria || '').toUpperCase() === nivel) &&
+        return matchesSex &&
+          !(isFemaleRanking && WILDCARD_FEMALE_NAMES.has(normalizeRankingName(st.nombre))) &&
+          (!nivel || String(st.categoria || '').toUpperCase() === nivel) &&
           st.participaciones.has(catName);
       })
       .map(st => {

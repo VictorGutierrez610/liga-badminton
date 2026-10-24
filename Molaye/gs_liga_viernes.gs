@@ -6,7 +6,7 @@
 //    - Socios       -> ID | Nombre | Apellidos | Categoria | Sexo
 //    - Jornadas     -> ID | Fecha | Modalidad | Formato | Desde | PuntosSet | GanarPor2 | Estado | ParejasRotativas
 //    - Inscritos    -> JornadaID | Categoria | ParticipanteID | IDs | Nombres
-//    - Competiciones-> JornadaID | Categoria | Sistema | Grupos | Clasifican
+//    - Competiciones-> JornadaID | Categoria | Sistema | Grupos | Clasifican | PuntosPrecalculados
 //    - Partidos     -> ID | JornadaID | Fecha | Categoria | Ronda | Grupo | Orden |
 //                     Estado | IdsA | NomA | IdsB | NomB | Sets | Ganador
 // =====================================================================
@@ -176,13 +176,15 @@ function getSheetsRevision() {
     ['Socios', ['ID','Nombre','Apellidos','Categoria','Sexo']],
     ['Jornadas', ['ID','Fecha','Modalidad','Formato','Desde','PuntosSet','GanarPor2','Estado','ParejasRotativas']],
     ['Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']],
-    ['Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']],
+    ['Competiciones', _hC()],
     ['Partidos', _hP()]
   ];
   const snapshot = tables.map(([name, headers]) =>
     (name === 'Jornadas'
       ? getJornadasSheet()
-      : name === 'Partidos'
+      : name === 'Competiciones'
+        ? getCompeticionesSheet()
+        : name === 'Partidos'
         ? getPartidosSheet()
         : getOrCreateSheet(name, headers)).getDataRange().getValues()
   );
@@ -239,10 +241,20 @@ function getAllData() {
     });
 
   const competiciones = {};
-  sheetRows(getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']))
+  sheetRows(getCompeticionesSheet())
     .filter(r => r[0] && r[1]).forEach(r => {
+      let puntosPrecalculados = {};
+      try {
+        puntosPrecalculados = JSON.parse(r[5] || '{}');
+      } catch (err) {
+        throw new Error('Los puntos precalculados de la competición ' + String(r[0]) + '_' + String(r[1]) + ' no tienen un formato JSON válido.');
+      }
+      if (!puntosPrecalculados || typeof puntosPrecalculados !== 'object' || Array.isArray(puntosPrecalculados)) {
+        throw new Error('Los puntos precalculados de la competición ' + String(r[0]) + '_' + String(r[1]) + ' no tienen un formato válido.');
+      }
       competiciones[String(r[0]) + '_' + String(r[1])] = {
-        sistema: r[2], grupos: Number(r[3]) || 0, clasifican: Number(r[4]) || 0
+        sistema: r[2], grupos: Number(r[3]) || 0, clasifican: Number(r[4]) || 0,
+        puntosPrecalculados
       };
     });
 
@@ -306,7 +318,7 @@ function guardarJornadaDefinitiva(idJornada) {
 function borrarJornada(idJornada) {
   _delWhere('Jornadas',     ['ID','Fecha','Modalidad','Formato','Desde','PuntosSet','GanarPor2','Estado','ParejasRotativas'], r => String(r[0])===String(idJornada));
   _delWhere('Inscritos',    ['JornadaID','Categoria','ParticipanteID','IDs','Nombres'],                   r => String(r[0])===String(idJornada));
-  _delWhere('Competiciones',['JornadaID','Categoria','Sistema','Grupos','Clasifican'],                    r => String(r[0])===String(idJornada));
+  _delWhere('Competiciones',_hC(),                                                                      r => String(r[0])===String(idJornada));
   _delWhere('Partidos',     _hP(),                                                                        r => String(r[1])===String(idJornada));
   return true;
 }
@@ -333,6 +345,25 @@ function quitarInscrito(idJornada, categoria, idPart) {
 function _hP() {
   return ['ID','JornadaID','Fecha','Categoria','Ronda','Grupo','Orden',
           'Estado','IdsA','NomA','IdsB','NomB','Sets','Ganador','FormatoPartido'];
+}
+
+function _hC() {
+  return ['JornadaID','Categoria','Sistema','Grupos','Clasifican','PuntosPrecalculados'];
+}
+
+function getCompeticionesSheet() {
+  const headers = _hC();
+  const sheet = getOrCreateSheet('Competiciones', headers);
+  const lastColumn = sheet.getLastColumn();
+  const existingHeader = lastColumn >= headers.length
+    ? sheet.getRange(1, headers.length).getValue()
+    : '';
+  if (!existingHeader) {
+    sheet.getRange(1, headers.length).setValue(headers[headers.length - 1]).setFontWeight('bold');
+  } else if (existingHeader !== headers[headers.length - 1]) {
+    throw new Error('La columna F de Competiciones debe llamarse PuntosPrecalculados. Revisa los encabezados antes de sincronizar.');
+  }
+  return sheet;
 }
 
 function getPartidosSheet() {
@@ -362,10 +393,10 @@ function _partidoRow(p) {
 }
 
 function crearCompeticion(idJornada, categoria, cfg, partidos) {
-  const sC = getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']);
+  const sC = getCompeticionesSheet();
   if (sheetRows(sC).some(r=>String(r[0])===String(idJornada)&&r[1]===categoria))
     throw new Error('Ya existe una competicion para esa jornada/categoria.');
-  sC.appendRow([idJornada, categoria, cfg.sistema, cfg.grupos||0, cfg.clasifican||0]);
+  sC.appendRow([idJornada, categoria, cfg.sistema, cfg.grupos||0, cfg.clasifican||0, '{}']);
 
   if (partidos && partidos.length > 0) {
     const sP = getPartidosSheet();
@@ -404,7 +435,7 @@ function guardarPartidos(partidos) {
 }
 
 function borrarCompeticion(idJornada, categoria) {
-  _delWhere('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican'],
+  _delWhere('Competiciones', _hC(),
     r => String(r[0])===String(idJornada) && r[1]===categoria);
   _delWhere('Partidos', _hP(),
     r => String(r[1])===String(idJornada) && r[3]===categoria);
@@ -580,14 +611,17 @@ function syncAll(data, expectedRevision) {
   });
   const competicionRows = Object.entries(data.competiciones).map(([key, comp]) => {
     const parts = key.split('_');
-    return [parts[0], parts.slice(1).join('_'), comp.sistema, comp.grupos || 0, comp.clasifican || 0];
+    return [
+      parts[0], parts.slice(1).join('_'), comp.sistema, comp.grupos || 0,
+      comp.clasifican || 0, JSON.stringify(comp.puntosPrecalculados || {})
+    ];
   });
   const partidoRows = data.partidos.map(_partidoRow);
 
   const tables = [
     [jornadasSheet, jornadaColumns.width, jornadaRows],
     [getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']), 5, inscritoRows],
-    [getOrCreateSheet('Competiciones', ['JornadaID','Categoria','Sistema','Grupos','Clasifican']), 5, competicionRows],
+    [getCompeticionesSheet(), 6, competicionRows],
     [getPartidosSheet(), 15, partidoRows]
   ];
   const backups = tables.map(([sheet, width]) => {
@@ -635,7 +669,9 @@ function _clearRows(sheet) {
 function _delWhere(name, headers, predFn) {
   const sheet = name === 'Partidos'
     ? getPartidosSheet()
-    : getOrCreateSheet(name, headers);
+    : name === 'Competiciones'
+      ? getCompeticionesSheet()
+      : getOrCreateSheet(name, headers);
   const data = sheet.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
     if (predFn(data[i])) sheet.deleteRow(i + 1);
