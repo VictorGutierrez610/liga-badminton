@@ -612,6 +612,46 @@ test('edita los dos lados como parejas en partidos rotativos', async () => {
   );
 });
 
+test('permite cualquier combinación de jugadores en parejas rotativas mixtas', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.competiciones['J1_DX'] = { sistema: 'ROTATIVOS' };
+  instance.inscritos['J1_DX'] = ['1', '2', '3', '4'].map(id => ({
+    id,
+    ids: [id],
+    nombres: [`Jugador ${id}`]
+  }));
+  instance.socios = [
+    { id: '1', nombre: 'Pedro', apellidos: 'Uno', sexo: 'M' },
+    { id: '2', nombre: 'Iván', apellidos: 'Dos', sexo: 'M' },
+    { id: '3', nombre: 'Elisa', apellidos: 'Tres', sexo: 'F' },
+    { id: '4', nombre: 'Juan', apellidos: 'Cuatro', sexo: 'M' }
+  ];
+  instance.partidos = [{
+    id: 'rotating-mixed-match',
+    jornada: 'J1',
+    categoria: 'DX',
+    ronda: 'Fase de grupos',
+    idsA: ['1', '2'],
+    nomA: ['Pedro Uno', 'Iván Dos'],
+    idsB: ['3', '4'],
+    nomB: ['Elisa Tres', 'Juan Cuatro'],
+    sets: [],
+    estado: 'Pendiente',
+    ganador: ''
+  }];
+  instance.persistBracketMatches = async () => {};
+
+  await instance.actualizarParticipantesPartido(
+    'rotating-mixed-match',
+    ['1', '2'],
+    ['3', '4']
+  );
+
+  assert.deepEqual(instance.partidos[0].idsA, ['1', '2']);
+  assert.deepEqual(instance.partidos[0].idsB, ['3', '4']);
+});
+
 test('conserva cambios locales cuando la hoja remota cambió desde la última carga', async () => {
   const instance = createEngine();
   instance.remoteRevision = 'revision-base';

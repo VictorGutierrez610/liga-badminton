@@ -2195,19 +2195,6 @@ export class BadmintonEngine {
       if (new Set(allIds).size !== allIds.length) {
         throw new Error('Un jugador no puede aparecer en las dos parejas del enfrentamiento.');
       }
-      const sexes = allIds.map(id => this.getRotatingPlayerSex(id));
-      if (sexes.some(sex => !sex)) {
-        throw new Error('No se puede identificar el sexo de todos los jugadores inscritos.');
-      }
-      if (
-        (match.categoria === 'DM' && sexes.some(sex => sex !== 'M')) ||
-        (match.categoria === 'DF' && sexes.some(sex => sex !== 'F')) ||
-        (match.categoria === 'DX' &&
-          (this.getRotatingPlayerSex(pairA.ids[0]) === this.getRotatingPlayerSex(pairA.ids[1]) ||
-            this.getRotatingPlayerSex(pairB.ids[0]) === this.getRotatingPlayerSex(pairB.ids[1])))
-      ) {
-        throw new Error(`La composición de las parejas no corresponde a la categoría ${match.categoria}.`);
-      }
       idsA = pairA.ids;
       nomA = pairA.names;
       idsB = pairB.ids;
