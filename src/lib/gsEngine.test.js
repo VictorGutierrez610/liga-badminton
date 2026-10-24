@@ -769,7 +769,7 @@ test('añade la columna de formato individual a la hoja de partidos existente', 
   assert.equal(headers.length, 15);
 });
 
-test('añade la columna de puntos precalculados a Competiciones sin alterar sus columnas existentes', () => {
+test('añade columnas de rondas rotativas a Competiciones sin alterar las existentes', () => {
   const headers = ['JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican'];
   const sheet = {
     getLastColumn: () => headers.length,
@@ -786,16 +786,17 @@ test('añade la columna de puntos precalculados a Competiciones sin alterar sus 
   context.getCompeticionesSheet();
 
   assert.deepEqual(headers, [
-    'JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican', 'PuntosPrecalculados'
+    'JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican',
+    'PuntosPrecalculados', 'Rondas', 'PartidosPorRonda'
   ]);
 });
 
-test('lee puntos precalculados de dobles mixtos desde la hoja Competiciones', () => {
+test('lee puntos precalculados y configuración rotativa desde la hoja Competiciones', () => {
   const competitionSheet = {
     getDataRange: () => ({
       getValues: () => [
-        ['JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican', 'PuntosPrecalculados'],
-        ['J1', 'DX', 'GRUPOS', 1, 0, '{"m1":125,"f1":110}']
+        ['JornadaID', 'Categoria', 'Sistema', 'Grupos', 'Clasifican', 'PuntosPrecalculados', 'Rondas', 'PartidosPorRonda'],
+        ['J1', 'DX', 'ROTATIVOS', 1, 0, '{"m1":125,"f1":110}', 3, 2]
       ]
     })
   };
@@ -813,6 +814,8 @@ test('lee puntos precalculados de dobles mixtos desde la hoja Competiciones', ()
 
   assert.equal(data.competiciones['J1_DX'].puntosPrecalculados.m1, 125);
   assert.equal(data.competiciones['J1_DX'].puntosPrecalculados.f1, 110);
+  assert.equal(data.competiciones['J1_DX'].rondas, 3);
+  assert.equal(data.competiciones['J1_DX'].partidosPorRonda, 2);
 });
 
 test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas sin sobrescribir columnas', () => {
@@ -1047,6 +1050,134 @@ test('genera seis rondas rotativas equilibrando las participaciones en dobles ma
     [...match.idsA, ...match.idsB].forEach(id => appearances.set(id, (appearances.get(id) || 0) + 1));
   });
   assert.deepEqual([...appearances.values()], Array(8).fill(6));
+});
+
+test('genera únicamente las rondas y los partidos por ronda configurados', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.jornadas[0].modalidad = 'Dobles';
+  instance.socios = Array.from({ length: 8 }, (_, index) => ({
+    id: String(index + 1),
+    nombre: `Jugador ${index + 1}`,
+    apellidos: 'Prueba',
+    sexo: 'M'
+  }));
+  for (let id = 1; id <= 8; id++) {
+    await instance.anadirInscrito('J1', 'DM', [String(id)]);
+  }
+
+  await instance.crearCompeticion('J1', 'DM', {
+    sistema: 'ROTATIVOS',
+    rondas: 3,
+    partidosPorRonda: 1
+  });
+
+  assert.equal(instance.partidos.length, 3);
+  assert.deepEqual([...new Set(instance.partidos.map(match => match.grupo))], [
+    'Ronda 1', 'Ronda 2', 'Ronda 3'
+  ]);
+  assert.deepEqual(instance.competiciones['J1_DM'], {
+    sistema: 'ROTATIVOS',
+    grupos: 1,
+    clasifican: 0,
+    rondas: 3,
+    partidosPorRonda: 1
+  });
+});
+
+test('actualiza la configuración rotativa y reemplaza la fase anterior y su final', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.jornadas[0].modalidad = 'Dobles';
+  instance.socios = Array.from({ length: 8 }, (_, index) => ({
+    id: String(index + 1),
+    nombre: `Jugador ${index + 1}`,
+    apellidos: 'Prueba',
+    sexo: 'M'
+  }));
+  for (let id = 1; id <= 8; id++) {
+    await instance.anadirInscrito('J1', 'DM', [String(id)]);
+  }
+  await instance.crearCompeticion('J1', 'DM', {
+    sistema: 'ROTATIVOS',
+    rondas: 2,
+    partidosPorRonda: 1
+  });
+  instance.partidos[0].estado = 'Jugado';
+  instance.partidos[0].sets = [[15, 10]];
+  instance.partidos.push({
+    id: 'final',
+    jornada: 'J1',
+    categoria: 'DM',
+    ronda: 'Final',
+    estado: 'Jugado',
+    sets: [[15, 10]]
+  });
+  const calls = [];
+  instance.callRemote = async (action, payload) => {
+    calls.push({ action, payload });
+    return true;
+  };
+
+  await instance.actualizarCompeticionRotativos('J1', 'DM', {
+    rondas: 3,
+    partidosPorRonda: 2
+  });
+
+  assert.equal(instance.partidos.length, 6);
+  assert.ok(instance.partidos.every(match => match.estado === 'Pendiente'));
+  assert.equal(instance.competiciones['J1_DM'].rondas, 3);
+  assert.equal(instance.competiciones['J1_DM'].partidosPorRonda, 2);
+  assert.equal(calls[0].action, 'actualizarCompeticionRotativos');
+  assert.equal(calls[0].payload.partidos.length, 6);
+});
+
+test('verifica en Google Sheets la configuración rotativa y el calendario regenerado', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.inscritos['J1_DM'] = Array.from({ length: 4 }, (_, index) => ({
+    id: String(index + 1),
+    ids: [String(index + 1)],
+    nombres: [`Jugador ${index + 1}`]
+  }));
+  instance.socios = instance.inscritos['J1_DM'].map((participant, index) => ({
+    id: participant.id,
+    nombre: `Jugador ${index + 1}`,
+    apellidos: 'Prueba',
+    sexo: 'M'
+  }));
+  instance.competiciones['J1_DM'] = { sistema: 'ROTATIVOS', grupos: 1, clasifican: 0 };
+  let savedPayload;
+  const actions = [];
+  instance.callRemote = async (action, payload) => {
+    actions.push(action);
+    if (action === 'actualizarCompeticionRotativos') {
+      savedPayload = payload;
+      instance.lastSyncStatus = 'synced';
+      return true;
+    }
+    if (action === 'getAllData') {
+      return {
+        competiciones: {
+          'J1_DM': {
+            rondas: savedPayload.cfg.rondas,
+            partidosPorRonda: savedPayload.cfg.partidosPorRonda
+          }
+        },
+        partidos: savedPayload.partidos
+      };
+    }
+    throw new Error(`Acción inesperada: ${action}`);
+  };
+
+  await instance.actualizarCompeticionRotativos('J1', 'DM', {
+    rondas: 2,
+    partidosPorRonda: 1
+  });
+
+  assert.deepEqual(actions, ['actualizarCompeticionRotativos', 'getAllData']);
+  assert.equal(instance.lastSyncStatus, 'synced');
+  assert.equal(instance.localChangesPending, false);
 });
 
 test('persiste la opción de parejas rotativas en jornadas de dobles, no en individuales', async () => {

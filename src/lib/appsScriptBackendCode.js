@@ -6,7 +6,7 @@
 //    - Socios       -> ID | Nombre | Apellidos | Categoria | Sexo
 //    - Jornadas     -> ID | Fecha | Modalidad | Formato | Desde | PuntosSet | GanarPor2 | Estado | ParejasRotativas
 //    - Inscritos    -> JornadaID | Categoria | ParticipanteID | IDs | Nombres
-//    - Competiciones-> JornadaID | Categoria | Sistema | Grupos | Clasifican | PuntosPrecalculados
+//    - Competiciones-> JornadaID | Categoria | Sistema | Grupos | Clasifican | PuntosPrecalculados | Rondas | PartidosPorRonda
 //    - Partidos     -> ID | JornadaID | Fecha | Categoria | Ronda | Grupo | Orden |
 //                     Estado | IdsA | NomA | IdsB | NomB | Sets | Ganador
 // =====================================================================
@@ -47,6 +47,7 @@ function doPost(e) {
     else if (action === 'anadirInscrito')          result = anadirInscrito(request.idJornada, request.categoria, request.ids, request.nombres);
     else if (action === 'quitarInscrito')          result = quitarInscrito(request.idJornada, request.categoria, request.idPart);
     else if (action === 'crearCompeticion')        result = crearCompeticion(request.idJornada, request.categoria, request.cfg, request.partidos);
+    else if (action === 'actualizarCompeticionRotativos') result = actualizarCompeticionRotativos(request.idJornada, request.categoria, request.cfg, request.partidos);
     else if (action === 'guardarPartidos')         result = guardarPartidos(request.partidos);
     else if (action === 'borrarCompeticion')       result = borrarCompeticion(request.idJornada, request.categoria);
     else if (action === 'guardarResultado')        result = guardarResultado(request.idPartido, request.sets, request.ganador, request.partido);
@@ -254,7 +255,9 @@ function getAllData() {
       }
       competiciones[String(r[0]) + '_' + String(r[1])] = {
         sistema: r[2], grupos: Number(r[3]) || 0, clasifican: Number(r[4]) || 0,
-        puntosPrecalculados
+        puntosPrecalculados,
+        rondas: Number(r[6]) || 0,
+        partidosPorRonda: Number(r[7]) || 0
       };
     });
 
@@ -348,20 +351,26 @@ function _hP() {
 }
 
 function _hC() {
-  return ['JornadaID','Categoria','Sistema','Grupos','Clasifican','PuntosPrecalculados'];
+  return ['JornadaID','Categoria','Sistema','Grupos','Clasifican','PuntosPrecalculados','Rondas','PartidosPorRonda'];
 }
 
 function getCompeticionesSheet() {
   const headers = _hC();
   const sheet = getOrCreateSheet('Competiciones', headers);
   const lastColumn = sheet.getLastColumn();
-  const existingHeader = lastColumn >= headers.length
-    ? sheet.getRange(1, headers.length).getValue()
-    : '';
-  if (!existingHeader) {
-    sheet.getRange(1, headers.length).setValue(headers[headers.length - 1]).setFontWeight('bold');
-  } else if (existingHeader !== headers[headers.length - 1]) {
+  const existingPointHeader = lastColumn >= 6 ? sheet.getRange(1, 6).getValue() : '';
+  if (!existingPointHeader) {
+    sheet.getRange(1, 6).setValue(headers[5]).setFontWeight('bold');
+  } else if (existingPointHeader !== headers[5]) {
     throw new Error('La columna F de Competiciones debe llamarse PuntosPrecalculados. Revisa los encabezados antes de sincronizar.');
+  }
+  for (let column = 7; column <= headers.length; column++) {
+    const existingHeader = lastColumn >= column ? sheet.getRange(1, column).getValue() : '';
+    if (!existingHeader) {
+      sheet.getRange(1, column).setValue(headers[column - 1]).setFontWeight('bold');
+    } else if (existingHeader !== headers[column - 1]) {
+      throw new Error('Las columnas G y H de Competiciones deben llamarse Rondas y PartidosPorRonda. Revisa los encabezados antes de sincronizar.');
+    }
   }
   return sheet;
 }
@@ -396,12 +405,55 @@ function crearCompeticion(idJornada, categoria, cfg, partidos) {
   const sC = getCompeticionesSheet();
   if (sheetRows(sC).some(r=>String(r[0])===String(idJornada)&&r[1]===categoria))
     throw new Error('Ya existe una competicion para esa jornada/categoria.');
-  sC.appendRow([idJornada, categoria, cfg.sistema, cfg.grupos||0, cfg.clasifican||0, '{}']);
+  sC.appendRow([
+    idJornada, categoria, cfg.sistema, cfg.grupos || 0,
+    cfg.clasifican || 0, '{}', cfg.rondas || 0, cfg.partidosPorRonda || 0
+  ]);
 
   if (partidos && partidos.length > 0) {
     const sP = getPartidosSheet();
     partidos.forEach(p => sP.appendRow(_partidoRow(p)));
   }
+  return true;
+}
+
+function actualizarCompeticionRotativos(idJornada, categoria, cfg, partidos) {
+  if (!Number.isInteger(Number(cfg && cfg.rondas)) || Number(cfg.rondas) < 1 || Number(cfg.rondas) > 30) {
+    throw new Error('El número de rondas debe estar entre 1 y 30.');
+  }
+  if (!Number.isInteger(Number(cfg && cfg.partidosPorRonda)) || Number(cfg.partidosPorRonda) < 1) {
+    throw new Error('Los partidos por ronda deben ser un número entero positivo.');
+  }
+  if (!Array.isArray(partidos) || partidos.length !== Number(cfg.rondas) * Number(cfg.partidosPorRonda)) {
+    throw new Error('La cantidad de partidos no coincide con las rondas y partidos configurados.');
+  }
+
+  const competitionsSheet = getCompeticionesSheet();
+  const competitionData = competitionsSheet.getDataRange().getValues();
+  const rowIndex = competitionData.findIndex((row, index) =>
+    index > 0 && String(row[0]) === String(idJornada) && String(row[1]) === String(categoria)
+  );
+  if (rowIndex < 0 || competitionData[rowIndex][2] !== 'ROTATIVOS') {
+    throw new Error('No existe una competición de parejas rotativas para esta categoría.');
+  }
+  const competitionRow = rowIndex + 1;
+  competitionsSheet.getRange(competitionRow, 7, 1, 2).setValues([[
+    Number(cfg.rondas), Number(cfg.partidosPorRonda)
+  ]]);
+
+  const matchesSheet = getPartidosSheet();
+  const existingMatches = matchesSheet.getDataRange().getValues();
+  for (let index = existingMatches.length - 1; index >= 1; index--) {
+    const row = existingMatches[index];
+    if (
+      String(row[1]) === String(idJornada) &&
+      String(row[3]) === String(categoria) &&
+      (row[4] === 'Fase de grupos' || row[4] === 'Final')
+    ) {
+      matchesSheet.deleteRow(index + 1);
+    }
+  }
+  partidos.forEach(partido => matchesSheet.appendRow(_partidoRow(partido)));
   return true;
 }
 
@@ -613,7 +665,8 @@ function syncAll(data, expectedRevision) {
     const parts = key.split('_');
     return [
       parts[0], parts.slice(1).join('_'), comp.sistema, comp.grupos || 0,
-      comp.clasifican || 0, JSON.stringify(comp.puntosPrecalculados || {})
+      comp.clasifican || 0, JSON.stringify(comp.puntosPrecalculados || {}),
+      comp.rondas || 0, comp.partidosPorRonda || 0
     ];
   });
   const partidoRows = data.partidos.map(_partidoRow);
@@ -621,7 +674,7 @@ function syncAll(data, expectedRevision) {
   const tables = [
     [jornadasSheet, jornadaColumns.width, jornadaRows],
     [getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']), 5, inscritoRows],
-    [getCompeticionesSheet(), 6, competicionRows],
+    [getCompeticionesSheet(), 8, competicionRows],
     [getPartidosSheet(), 15, partidoRows]
   ];
   const backups = tables.map(([sheet, width]) => {

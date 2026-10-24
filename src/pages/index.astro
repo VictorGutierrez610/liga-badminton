@@ -333,6 +333,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       btnCreateComp.style.opacity = isAdmin ? "1" : "0.6";
     }
 
+    const btnSaveRotatingConfig = document.getElementById("btnSaveRotatingConfig");
+    if (btnSaveRotatingConfig) {
+      btnSaveRotatingConfig.disabled = !isAdmin;
+      btnSaveRotatingConfig.style.opacity = isAdmin ? "1" : "0.6";
+    }
+
     renderDataSyncNotice();
     updateMixedPointsImportVisibility();
 
@@ -1154,6 +1160,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document
       .getElementById("btnDeleteMatchScore")
       ?.addEventListener("click", deleteScoreModal);
+    document
+      .getElementById("btnSaveRotatingConfig")
+      ?.addEventListener("click", saveRotatingCompetitionConfig);
 
     document
       .getElementById("managerMatchFilter")
@@ -1288,6 +1297,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         const knockoutBox = document.getElementById("knockoutConfigBox");
         if (knockoutBox)
           knockoutBox.style.display = selectedSystem === "ELIM" ? "block" : "none";
+        const rotatingBox = document.getElementById("rotatingSetupConfig");
+        if (rotatingBox)
+          rotatingBox.style.display = selectedSystem === "ROTATIVOS" ? "block" : "none";
         refreshGroupAllocationPreview();
         renderManualGroupAssignments();
         renderDirectKnockoutPairings();
@@ -1627,7 +1639,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (errEl) errEl.textContent = "";
 
     const cfg = { sistema: selectedSystem };
-    if (selectedSystem === "GRUPOS") {
+    if (selectedSystem === "ROTATIVOS") {
+      cfg.rondas = Number(document.getElementById("rotatingRoundsInput").value);
+      cfg.partidosPorRonda = Number(document.getElementById("rotatingMatchesPerRoundInput").value);
+    } else if (selectedSystem === "GRUPOS") {
       const numG = Number(document.getElementById("numGruposInput").value) || 2;
       const clas =
         Number(document.getElementById("clasificanGruposInput").value) || 2;
@@ -1671,6 +1686,66 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     } finally {
       stopLoading();
     }
+  }
+
+  async function saveRotatingCompetitionConfig(event) {
+    const roundsInput = document.getElementById("managerRotatingRounds");
+    const matchesInput = document.getElementById("managerRotatingMatches");
+    const message = document.getElementById("rotatingConfigMsg");
+    if (message) {
+      message.style.color = "var(--text-muted)";
+      message.textContent = "";
+    }
+    if (
+      !Number.isInteger(Number(roundsInput.value)) ||
+      !Number.isInteger(Number(matchesInput.value))
+    ) {
+      if (message) {
+        message.style.color = "var(--accent-red)";
+        message.textContent = "Introduce un número entero de rondas y partidos por ronda.";
+      }
+      return;
+    }
+    const confirmText =
+      "Se regenerarán todos los partidos de la fase clasificatoria y se eliminará la final existente, incluidos sus resultados. ¿Quieres continuar?";
+    if (!confirm(confirmText)) return;
+
+    const stopLoading = setButtonLoading(event.currentTarget, "Actualizando…");
+    try {
+      const remoteResult = await engine.actualizarCompeticionRotativos(
+        mgrJornadaId,
+        mgrCategory,
+        {
+          rondas: Number(roundsInput.value),
+          partidosPorRonda: Number(matchesInput.value)
+        }
+      );
+      refreshCompetitionState();
+      if (message) {
+        const isSynced = Boolean(remoteResult) && engine.lastSyncStatus === "synced";
+        message.style.color = isSynced ? "var(--accent-green)" : "var(--accent-gold)";
+        message.textContent = isSynced
+          ? "✅ Rondas y partidos actualizados en Google Sheets."
+          : `⚠️ Cambios actualizados localmente; Sheets no confirmó el guardado.${engine.lastRemoteError ? ` ${engine.lastRemoteError}` : ""}`;
+      }
+    } catch (error) {
+      if (message) {
+        message.style.color = "var(--accent-red)";
+        message.textContent = error instanceof Error ? error.message : String(error);
+      }
+      refreshCompetitionState();
+    } finally {
+      stopLoading();
+    }
+  }
+
+  function maxRotatingMatchesPerRound(category, participants) {
+    if (category === "DX") {
+      const men = participants.filter((player) => engine.getRotatingPlayerSex(player.ids?.[0]) === "M").length;
+      const women = participants.filter((player) => engine.getRotatingPlayerSex(player.ids?.[0]) === "F").length;
+      return Math.min(Math.floor(men / 2), Math.floor(women / 2));
+    }
+    return Math.floor(participants.length / 4);
   }
 
   function renderManualGroupAssignments() {
@@ -2015,6 +2090,45 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     if (groupsConfig) groupsConfig.style.display = !detail.competicion && selectedSystem === "GRUPOS" ? "block" : "none";
     const knockoutConfig = document.getElementById("knockoutConfigBox");
     if (knockoutConfig) knockoutConfig.style.display = !detail.competicion && selectedSystem === "ELIM" ? "block" : "none";
+    const rotatingSetupConfig = document.getElementById("rotatingSetupConfig");
+    const rotatingActiveConfig = document.getElementById("rotatingActiveConfig");
+    const maxMatchesPerRound = Math.max(1, maxRotatingMatchesPerRound(mgrCategory, detail.participantes));
+    const setupRoundsInput = document.getElementById("rotatingRoundsInput");
+    const setupMatchesInput = document.getElementById("rotatingMatchesPerRoundInput");
+    const setupCategoryKey = `${mgrCategory}:${detail.participantes.length}`;
+    if (setupMatchesInput) {
+      setupMatchesInput.max = String(maxMatchesPerRound);
+      if (setupMatchesInput.dataset.categoryKey !== setupCategoryKey) {
+        setupMatchesInput.value = String(maxMatchesPerRound);
+        setupMatchesInput.dataset.categoryKey = setupCategoryKey;
+      } else if (Number(setupMatchesInput.value) > maxMatchesPerRound) {
+        setupMatchesInput.value = String(maxMatchesPerRound);
+      }
+    }
+    if (setupRoundsInput && !setupRoundsInput.value) setupRoundsInput.value = "6";
+    if (rotatingSetupConfig) {
+      rotatingSetupConfig.style.display =
+        !detail.competicion && rotatingDoubles && selectedSystem === "ROTATIVOS" ? "block" : "none";
+    }
+    if (rotatingActiveConfig) {
+      rotatingActiveConfig.style.display = detail.competicion?.sistema === "ROTATIVOS" ? "block" : "none";
+    }
+    const activeRoundsInput = document.getElementById("managerRotatingRounds");
+    const activeMatchesInput = document.getElementById("managerRotatingMatches");
+    if (detail.competicion?.sistema === "ROTATIVOS") {
+      const qualifyingMatches = detail.partidos.filter((match) => match.ronda === "Fase de grupos");
+      const inferredRounds = new Set(qualifyingMatches.map((match) => match.grupo)).size;
+      const firstRoundCount = qualifyingMatches.filter((match) => match.grupo === "Ronda 1").length;
+      if (activeRoundsInput) {
+        activeRoundsInput.value = String(detail.competicion.rondas || inferredRounds || 6);
+      }
+      if (activeMatchesInput) {
+        activeMatchesInput.max = String(maxMatchesPerRound);
+        activeMatchesInput.value = String(
+          detail.competicion.partidosPorRonda || firstRoundCount || maxMatchesPerRound
+        );
+      }
+    }
 
     // Count
     document.getElementById("inscritosCount").textContent =
@@ -2079,10 +2193,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         getQualifiedGroupEntries().length >= 2;
       const qualifyingMatches = detail.partidos.filter((match) => match.ronda === "Fase de grupos");
       const qualifyingRoundsCount = new Set(qualifyingMatches.map((match) => match.grupo)).size;
+      const configuredRounds = Number(detail.competicion.rondas) || 6;
+      const configuredMatchesPerRound = Number(detail.competicion.partidosPorRonda) ||
+        qualifyingMatches.filter((match) => match.grupo === "Ronda 1").length;
       const hasRotatingFinal = detail.partidos.some((match) => match.ronda === "Final");
       const canGenerateRotatingFinal = detail.competicion.sistema === "ROTATIVOS" &&
         qualifyingMatches.length > 0 &&
-        qualifyingRoundsCount === 6 &&
+        qualifyingRoundsCount === configuredRounds &&
+        qualifyingMatches.length === configuredRounds * configuredMatchesPerRound &&
         qualifyingMatches.every((match) => match.estado === "Jugado") &&
         !hasRotatingFinal;
       if (groupKnockoutConfig)
@@ -2102,7 +2220,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           ? "Crear la final con los mejores clasificados individualmente"
           : hasRotatingFinal
             ? "La final ya está generada"
-            : "Completa las seis rondas clasificatorias antes de generar la final";
+            : "Completa todas las rondas clasificatorias antes de generar la final";
       }
       renderGroupKnockoutPairings();
       if (statusOverview) {
@@ -2129,48 +2247,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const configEl = document.getElementById("managerCompetitionConfig");
     if (configEl) {
       const comp = detail.competicion;
+      const rotatingMatches = detail.partidos.filter((match) => match.ronda === "Fase de grupos");
       configEl.textContent = comp
         ? comp.sistema === "ROTATIVOS"
-          ? "Parejas rotativas · seis rondas clasificatorias · final por clasificación individual"
+          ? `Parejas rotativas · ${comp.rondas || new Set(rotatingMatches.map((match) => match.grupo)).size || 6} rondas · ${comp.partidosPorRonda || rotatingMatches.filter((match) => match.grupo === "Ronda 1").length} partidos por ronda`
           : `${comp.sistema} · ${comp.grupos || 0} grupo(s) · ${comp.clasifican || 0} clasifican`
         : "Sin configuración de competición";
-    }
-    const rotatingStandings = document.getElementById("managerRotatingStandings");
-    if (rotatingStandings) {
-      if (detail.competicion?.sistema !== "ROTATIVOS") {
-        rotatingStandings.style.display = "none";
-        rotatingStandings.innerHTML = "";
-      } else {
-        const ranking = detail.clasificacion["Clasificación individual"] || [];
-        rotatingStandings.style.display = "block";
-        rotatingStandings.innerHTML = `
-          <h3 style="font-size:16px; font-weight:700; color:var(--primary-light); margin-bottom:10px;">
-            Clasificación individual · Parejas rotativas
-          </h3>
-          <p class="text-muted" style="font-size:12px; margin-bottom:12px;">
-            Desempates: victorias, diferencia de puntos y puntos a favor. Si persiste la igualdad, se comparte posición.
-            ${detail.todosGruposTerminados ? "Rondas clasificatorias completadas." : "Clasificación provisional."}
-          </p>
-          <div class="table-container">
-            <table class="custom-table">
-              <thead>
-                <tr><th>Pos</th><th class="text-left">Jugador</th><th>PJ</th><th>G</th><th>P</th><th>PF</th><th>PC</th><th>Dif.</th></tr>
-              </thead>
-              <tbody>
-                ${ranking.map((player, index) => `
-                  <tr class="${(player.posicion || index + 1) === 1 ? "leader-row" : ""}">
-                    <td><b>${player.posicion || index + 1}º</b></td>
-                    <td class="text-left">${escapeHtml(player.nombre)}</td>
-                    <td>${player.PJ}</td><td class="text-green">${player.G}</td>
-                    <td class="text-red">${player.P}</td><td>${player.PF}</td><td>${player.PC}</td>
-                    <td class="${player.diffPuntosGrupo < 0 ? "text-red" : "text-green"}">${player.diffPuntosGrupo > 0 ? "+" : ""}${player.diffPuntosGrupo}</td>
-                  </tr>
-                `).join("")}
-              </tbody>
-            </table>
-          </div>
-        `;
-      }
     }
     renderManagerMatchDetails(detail.partidos);
   }
