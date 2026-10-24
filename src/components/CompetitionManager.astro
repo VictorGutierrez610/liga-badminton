@@ -298,7 +298,7 @@
     </div>
     <p id="matchParticipantsInfo" class="text-muted" style="font-size:13px; margin-bottom:14px;"></p>
     <form id="matchParticipantsForm">
-      <div class="grid-cols-2" style="gap:12px; margin-bottom:16px;">
+      <div id="matchParticipantsSides" class="grid-cols-2" style="gap:12px; margin-bottom:16px;">
         <div class="form-group">
           <label class="form-label" for="matchParticipantA">Jugador / pareja A</label>
           <select id="matchParticipantA" class="form-select" required></select>
@@ -306,6 +306,20 @@
         <div class="form-group">
           <label class="form-label" for="matchParticipantB">Jugador / pareja B</label>
           <select id="matchParticipantB" class="form-select" required></select>
+        </div>
+      </div>
+      <div id="rotatingMatchParticipants" class="grid-cols-2" style="display:none; gap:12px; margin-bottom:16px;">
+        <div class="form-group">
+          <label class="form-label" for="rotatingMatchPlayerA1">Pareja A · Jugador 1</label>
+          <select id="rotatingMatchPlayerA1" class="form-select"></select>
+          <label class="form-label" for="rotatingMatchPlayerA2" style="margin-top:10px;">Pareja A · Jugador 2</label>
+          <select id="rotatingMatchPlayerA2" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="rotatingMatchPlayerB1">Pareja B · Jugador 1</label>
+          <select id="rotatingMatchPlayerB1" class="form-select"></select>
+          <label class="form-label" for="rotatingMatchPlayerB2" style="margin-top:10px;">Pareja B · Jugador 2</label>
+          <select id="rotatingMatchPlayerB2" class="form-select"></select>
         </div>
       </div>
       <p class="text-muted" style="font-size:12px; margin-bottom:12px;">

@@ -2158,22 +2158,78 @@ export class BadmintonEngine {
     if (!match) throw new Error('No se encuentra el partido.');
 
     const inscritos = this.inscritos[`${match.jornada}_${match.categoria}`] || [];
+    const jornada = this.jornadas.find(item => item.id === match.jornada);
+    const competition = this.competiciones[`${match.jornada}_${match.categoria}`];
+    const rotatingPairs = Boolean(jornada?.parejasRotativas) &&
+      String(match.categoria).startsWith('D') &&
+      competition?.sistema === 'ROTATIVOS';
     const findParticipant = id => inscritos.find(participant => participant.id === id);
-    const participantA = participanteAId ? findParticipant(participanteAId) : null;
-    const participantB = participanteBId ? findParticipant(participanteBId) : null;
+    let idsA;
+    let idsB;
+    let nomA;
+    let nomB;
 
-    if ((participanteAId && !participantA) || (participanteBId && !participantB)) {
-      throw new Error('Selecciona participantes inscritos en esta categoría.');
-    }
-    if (!participantA && !participantB) {
-      throw new Error('El enfrentamiento debe tener al menos un jugador o pareja.');
-    }
-    if (participanteAId && participanteAId === participanteBId) {
-      throw new Error('El mismo jugador o pareja no puede ocupar ambos lados del enfrentamiento.');
+    if (rotatingPairs) {
+      const rotatingPlayers = new Map(inscritos
+        .filter(participant => (participant.ids || []).length === 1)
+        .map(participant => [String(participant.ids[0]), participant]));
+      const normalizePair = ids => {
+        if (!Array.isArray(ids) || ids.length !== 2 || ids.some(id => !id)) {
+          throw new Error('Cada lado del enfrentamiento debe tener exactamente dos jugadores.');
+        }
+        const players = ids.map(id => rotatingPlayers.get(String(id)));
+        if (players.some(player => !player)) {
+          throw new Error('Selecciona jugadores inscritos en esta categoría.');
+        }
+        if (String(ids[0]) === String(ids[1])) {
+          throw new Error('Un jugador no puede ocupar las dos posiciones de una pareja.');
+        }
+        return {
+          ids: ids.map(String),
+          names: players.map(player => player.nombres?.[0] || this.getNombreSocio(player.ids[0]))
+        };
+      };
+      const pairA = normalizePair(participanteAId);
+      const pairB = normalizePair(participanteBId);
+      const allIds = [...pairA.ids, ...pairB.ids];
+      if (new Set(allIds).size !== allIds.length) {
+        throw new Error('Un jugador no puede aparecer en las dos parejas del enfrentamiento.');
+      }
+      const sexes = allIds.map(id => this.getRotatingPlayerSex(id));
+      if (sexes.some(sex => !sex)) {
+        throw new Error('No se puede identificar el sexo de todos los jugadores inscritos.');
+      }
+      if (
+        (match.categoria === 'DM' && sexes.some(sex => sex !== 'M')) ||
+        (match.categoria === 'DF' && sexes.some(sex => sex !== 'F')) ||
+        (match.categoria === 'DX' &&
+          (this.getRotatingPlayerSex(pairA.ids[0]) === this.getRotatingPlayerSex(pairA.ids[1]) ||
+            this.getRotatingPlayerSex(pairB.ids[0]) === this.getRotatingPlayerSex(pairB.ids[1])))
+      ) {
+        throw new Error(`La composición de las parejas no corresponde a la categoría ${match.categoria}.`);
+      }
+      idsA = pairA.ids;
+      nomA = pairA.names;
+      idsB = pairB.ids;
+      nomB = pairB.names;
+    } else {
+      const participantA = participanteAId ? findParticipant(participanteAId) : null;
+      const participantB = participanteBId ? findParticipant(participanteBId) : null;
+      if ((participanteAId && !participantA) || (participanteBId && !participantB)) {
+        throw new Error('Selecciona participantes inscritos en esta categoría.');
+      }
+      if (!participantA && !participantB) {
+        throw new Error('El enfrentamiento debe tener al menos un jugador o pareja.');
+      }
+      if (participanteAId && participanteAId === participanteBId) {
+        throw new Error('El mismo jugador o pareja no puede ocupar ambos lados del enfrentamiento.');
+      }
+      idsA = participantA?.ids || [];
+      nomA = participantA?.nombres || [];
+      idsB = participantB?.ids || [];
+      nomB = participantB?.nombres || [];
     }
 
-    const idsA = participantA?.ids || [];
-    const idsB = participantB?.ids || [];
     if (
       JSON.stringify(match.idsA || []) === JSON.stringify(idsA) &&
       JSON.stringify(match.idsB || []) === JSON.stringify(idsB)
@@ -2182,15 +2238,15 @@ export class BadmintonEngine {
     const updatedMatch = {
       ...match,
       idsA: [...idsA],
-      nomA: [...(participantA?.nombres || [])],
+      nomA: [...nomA],
       idsB: [...idsB],
-      nomB: [...(participantB?.nombres || [])],
+      nomB: [...nomB],
       sets: [],
-      estado: participantA && participantB ? 'Pendiente' : 'Bye',
-      ganador: participantA ? 'A' : 'B',
+      estado: idsA.length && idsB.length ? 'Pendiente' : 'Bye',
+      ganador: idsA.length ? 'A' : 'B',
       registrado: ''
     };
-    if (participantA && participantB) updatedMatch.ganador = '';
+    if (idsA.length && idsB.length) updatedMatch.ganador = '';
 
     const updatedMatches = this.partidos.map(partido =>
       partido.id === idPartido ? updatedMatch : partido

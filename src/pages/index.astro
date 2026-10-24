@@ -41,6 +41,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   let selectedScoreMatch = null;
   let selectedParticipantsMatchId = null;
+  let selectedParticipantsRotating = false;
   let selectedEditPairId = null;
 
   let mgrJornadaId = "";
@@ -931,20 +932,53 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const match = engine.partidos.find((item) => item.id === matchId);
     if (!match) return;
     selectedParticipantsMatchId = matchId;
-    const participants = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).participantes;
-    const optionHtml = participants.map((participant) =>
-      `<option value="${escapeHtml(participant.id)}">${escapeHtml(participant.nombres.join(" / "))}</option>`,
-    ).join("");
-    const emptyOption = '<option value="">— Sin participante (bye) —</option>';
+    const detail = engine.getCompeticionDetalle(match.jornada, match.categoria);
+    const jornada = engine.jornadas.find((item) => item.id === match.jornada);
+    selectedParticipantsRotating = Boolean(jornada?.parejasRotativas) &&
+      detail.competicion?.sistema === "ROTATIVOS";
+    const participants = detail.participantes;
+    const optionHtml = selectedParticipantsRotating
+      ? participants.map((participant) => {
+        const id = participant.ids?.[0] || participant.id;
+        const name = participant.nombres?.[0] || String(id);
+        return `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`;
+      }).join("")
+      : participants.map((participant) =>
+        `<option value="${escapeHtml(participant.id)}">${escapeHtml(participant.nombres.join(" / "))}</option>`,
+      ).join("");
+    const emptyOption = selectedParticipantsRotating
+      ? '<option value="">— Selecciona un jugador —</option>'
+      : '<option value="">— Sin participante (bye) —</option>';
     const selectA = document.getElementById("matchParticipantA");
     const selectB = document.getElementById("matchParticipantB");
     selectA.innerHTML = `${emptyOption}${optionHtml}`;
     selectB.innerHTML = `${emptyOption}${optionHtml}`;
-    const participantId = (ids) => participants.find((participant) =>
-      JSON.stringify(participant.ids) === JSON.stringify(ids || []),
-    )?.id || "";
-    selectA.value = participantId(match.idsA);
-    selectB.value = participantId(match.idsB);
+    selectA.required = !selectedParticipantsRotating;
+    selectB.required = !selectedParticipantsRotating;
+    document.getElementById("matchParticipantsSides").style.display =
+      selectedParticipantsRotating ? "none" : "";
+    const rotatingFields = [
+      ["rotatingMatchPlayerA1", match.idsA?.[0]],
+      ["rotatingMatchPlayerA2", match.idsA?.[1]],
+      ["rotatingMatchPlayerB1", match.idsB?.[0]],
+      ["rotatingMatchPlayerB2", match.idsB?.[1]],
+    ];
+    document.getElementById("rotatingMatchParticipants").style.display =
+      selectedParticipantsRotating ? "" : "none";
+    if (selectedParticipantsRotating) {
+      rotatingFields.forEach(([id, value]) => {
+        const select = document.getElementById(id);
+        select.innerHTML = `${emptyOption}${optionHtml}`;
+        select.value = value || "";
+        select.required = selectedParticipantsRotating;
+      });
+    } else {
+      const participantId = (ids) => participants.find((participant) =>
+        JSON.stringify(participant.ids) === JSON.stringify(ids || []),
+      )?.id || "";
+      selectA.value = participantId(match.idsA);
+      selectB.value = participantId(match.idsB);
+    }
     document.getElementById("matchParticipantsInfo").textContent =
       `${formatShortDate(match.fecha)} · ${match.categoria} · ${match.ronda}${match.grupo ? ` · Grupo ${match.grupo}` : ""} · Partido ${match.orden}`;
     document.getElementById("matchParticipantsError").textContent = "";
@@ -954,6 +988,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   function closeMatchParticipantsModal() {
     document.getElementById("matchParticipantsModal").style.display = "none";
     selectedParticipantsMatchId = null;
+    selectedParticipantsRotating = false;
   }
 
   function openEditPairModal(participantId) {
@@ -1035,8 +1070,18 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   async function saveMatchParticipants(event) {
     event.preventDefault();
     if (!selectedParticipantsMatchId) return;
-    const participantAId = document.getElementById("matchParticipantA").value;
-    const participantBId = document.getElementById("matchParticipantB").value;
+    const participantAId = selectedParticipantsRotating
+      ? [
+        document.getElementById("rotatingMatchPlayerA1").value,
+        document.getElementById("rotatingMatchPlayerA2").value,
+      ]
+      : document.getElementById("matchParticipantA").value;
+    const participantBId = selectedParticipantsRotating
+      ? [
+        document.getElementById("rotatingMatchPlayerB1").value,
+        document.getElementById("rotatingMatchPlayerB2").value,
+      ]
+      : document.getElementById("matchParticipantB").value;
     const stopLoading = setButtonLoading(
       document.getElementById("btnSaveMatchParticipants"),
       "Guardando…",

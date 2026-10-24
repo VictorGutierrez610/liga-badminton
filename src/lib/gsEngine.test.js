@@ -560,6 +560,58 @@ test('impide asignar a una pareja un jugador ya inscrito en otra pareja', async 
   assert.deepEqual(instance.inscritos['J1_DM'][0].ids, ['1', '2']);
 });
 
+test('edita los dos lados como parejas en partidos rotativos', async () => {
+  const instance = createEngine({ sistema: 'ROTATIVOS' });
+  instance.jornadas[0].parejasRotativas = true;
+  instance.competiciones['J1_DM'] = { sistema: 'ROTATIVOS' };
+  instance.inscritos['J1_DM'] = ['1', '2', '3', '4', '5', '6'].map(id => ({
+    id,
+    ids: [id],
+    nombres: [`Jugador ${id}`]
+  }));
+  instance.socios = ['1', '2', '3', '4', '5', '6'].map(id => ({
+    id,
+    nombre: 'Jugador',
+    apellidos: id,
+    sexo: 'M'
+  }));
+  instance.partidos = [{
+    id: 'rotating-match',
+    jornada: 'J1',
+    categoria: 'DM',
+    ronda: 'Fase de grupos',
+    idsA: ['1', '2'],
+    nomA: ['Jugador 1', 'Jugador 2'],
+    idsB: ['3', '4'],
+    nomB: ['Jugador 3', 'Jugador 4'],
+    sets: [[21, 18]],
+    estado: 'Jugado',
+    ganador: 'A',
+    registrado: '2026-10-18T12:00:00.000Z'
+  }];
+  let persistedMatches;
+  instance.persistBracketMatches = async (changedMatches, updatedMatches) => {
+    persistedMatches = { changedMatches, updatedMatches };
+  };
+
+  await instance.actualizarParticipantesPartido('rotating-match', ['2', '5'], ['3', '6']);
+
+  const updatedMatch = instance.partidos[0];
+  assert.deepEqual(updatedMatch.idsA, ['2', '5']);
+  assert.deepEqual(updatedMatch.nomA, ['Jugador 2', 'Jugador 5']);
+  assert.deepEqual(updatedMatch.idsB, ['3', '6']);
+  assert.deepEqual(updatedMatch.nomB, ['Jugador 3', 'Jugador 6']);
+  assert.deepEqual(updatedMatch.sets, []);
+  assert.equal(updatedMatch.estado, 'Pendiente');
+  assert.equal(updatedMatch.ganador, '');
+  assert.deepEqual(persistedMatches.changedMatches, [updatedMatch]);
+
+  await assert.rejects(
+    instance.actualizarParticipantesPartido('rotating-match', ['1', '2'], ['2', '3']),
+    /no puede aparecer en las dos parejas/
+  );
+});
+
 test('conserva cambios locales cuando la hoja remota cambió desde la última carga', async () => {
   const instance = createEngine();
   instance.remoteRevision = 'revision-base';
