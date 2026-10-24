@@ -7,8 +7,9 @@
 const DEFAULT_SHEET_ID = '1RObAcHR-AiaMx_b7wSvXRaDop_x4htuKIHiLdZr3m8Y';
 
 // Coloca aquí la URL que te genera Google Apps Script al hacer la "Nueva Implementación"
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbygLCq-7tFGb-BHrPphKAWIovEAGSIxyZZ8FU8qVRsNZ7bP71sgUvzRzwwbmy3L48Smdg/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbysnoQzxhKUgpapokCJqSx78pIIJOyxqLGxpwAEKBHWQn15v904lEwez90a_cg-W0ENWw/exec';
 const PREVIOUS_DEFAULT_WEB_APP_URLS = new Set([
+  'https://script.google.com/macros/s/AKfycbygLCq-7tFGb-BHrPphKAWIovEAGSIxyZZ8FU8qVRsNZ7bP71sgUvzRzwwbmy3L48Smdg/exec',
   'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec',
   'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec',
   'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec'
