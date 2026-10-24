@@ -9,7 +9,7 @@ test('usa la URL activa de Apps Script como valor predeterminado', () => {
 
   assert.equal(
     instance.getWebAppUrl(),
-    'https://script.google.com/macros/s/AKfycbysnoQzxhKUgpapokCJqSx78pIIJOyxqLGxpwAEKBHWQn15v904lEwez90a_cg-W0ENWw/exec'
+    'https://script.google.com/macros/s/AKfycbzGMQlzE-e-vyUOL73hZ4OL8KA4CRBb1d7rUBu0df4uxWOLyq9t4Ws6l_LdK_PNgVlNzw/exec'
   );
 });
 
@@ -20,7 +20,8 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
       'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec',
       'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec',
       'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec',
-      'https://script.google.com/macros/s/AKfycbygLCq-7tFGb-BHrPphKAWIovEAGSIxyZZ8FU8qVRsNZ7bP71sgUvzRzwwbmy3L48Smdg/exec'
+      'https://script.google.com/macros/s/AKfycbygLCq-7tFGb-BHrPphKAWIovEAGSIxyZZ8FU8qVRsNZ7bP71sgUvzRzwwbmy3L48Smdg/exec',
+      'https://script.google.com/macros/s/AKfycbysnoQzxhKUgpapokCJqSx78pIIJOyxqLGxpwAEKBHWQn15v904lEwez90a_cg-W0ENWw/exec'
     ]) {
       const storage = new Map([['liga_badminton_script_url', previousUrl]]);
       Object.defineProperty(globalThis, 'localStorage', {
@@ -32,7 +33,7 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
       });
 
       const instance = new BadmintonEngine();
-      const activeUrl = 'https://script.google.com/macros/s/AKfycbysnoQzxhKUgpapokCJqSx78pIIJOyxqLGxpwAEKBHWQn15v904lEwez90a_cg-W0ENWw/exec';
+      const activeUrl = 'https://script.google.com/macros/s/AKfycbzGMQlzE-e-vyUOL73hZ4OL8KA4CRBb1d7rUBu0df4uxWOLyq9t4Ws6l_LdK_PNgVlNzw/exec';
 
       assert.equal(instance.getWebAppUrl(), activeUrl);
       assert.equal(storage.get('liga_badminton_script_url'), activeUrl);
