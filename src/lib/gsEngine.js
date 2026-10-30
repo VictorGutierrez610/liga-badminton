@@ -64,7 +64,11 @@ const ROUND_STAGE = {
   Final: 5
 };
 const MAX_ROTATING_QUALIFYING_ROUNDS = 30;
-const WILDCARD_FEMALE_NAMES = new Set(['pedrito', 'pedrito 2']);
+const WILDCARD_FEMALE_NAMES = new Set([
+  'pedrito',
+  'pedrito 2',
+  'pedrito2 alonso'
+]);
 
 function normalizeRankingName(value) {
   return String(value || '').trim().toLocaleLowerCase('es')

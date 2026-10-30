@@ -326,13 +326,13 @@ test('aplica la escala fija de eliminatorias y conserva 95 puntos mientras la fi
 test('excluye al comodín del ranking femenino y asigna los puntos de pareja a su compañera', () => {
   const instance = createEngine({ sistema: 'GRUPOS' });
   instance.socios = [
-    { id: 'wildcard', nombre: 'Pedrito', apellidos: '2', sexo: 'F' },
+    { id: 'wildcard', nombre: 'Pedrito2', apellidos: 'Alonso', sexo: 'F' },
     { id: 'partner', nombre: 'Ana', apellidos: 'Prueba', sexo: 'F' },
     { id: 'other1', nombre: 'Bea', apellidos: 'Prueba', sexo: 'F' },
     { id: 'other2', nombre: 'Cris', apellidos: 'Prueba', sexo: 'F' }
   ];
   instance.inscritos['J1_DF'] = [
-    { id: 'partner+wildcard', ids: ['wildcard', 'partner'], nombres: ['Pedrito 2', 'Ana Prueba'] },
+    { id: 'partner+wildcard', ids: ['wildcard', 'partner'], nombres: ['Pedrito2 Alonso', 'Ana Prueba'] },
     { id: 'other1+other2', ids: ['other1', 'other2'], nombres: ['Bea Prueba', 'Cris Prueba'] }
   ];
   instance.competiciones['J1_DF'] = { sistema: 'GRUPOS' };
@@ -344,7 +344,7 @@ test('excluye al comodín del ranking femenino y asigna los puntos de pareja a s
     estado: 'Jugado',
     ganador: 'A',
     idsA: ['wildcard', 'partner'],
-    nomA: ['Pedrito 2', 'Ana Prueba'],
+    nomA: ['Pedrito2 Alonso', 'Ana Prueba'],
     idsB: ['other1', 'other2'],
     nomB: ['Bea Prueba', 'Cris Prueba'],
     sets: [[15, 10]]
