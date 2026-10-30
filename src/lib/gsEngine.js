@@ -29,10 +29,16 @@ export function getKnockoutRoundTitle(matchCount) {
 }
 
 export const CATEGORIAS = {
-  Individual: ['IM-A', 'IF-A', 'IM-B', 'IF-B'],
+  Individual: ['IM', 'IF'],
   Dobles: ['DM', 'DF'],
   'Dobles mixtos': ['DX']
 };
+
+function getRankingCategory(category) {
+  if (category === 'IM-A' || category === 'IM-B') return 'IM';
+  if (category === 'IF-A' || category === 'IF-B') return 'IF';
+  return category;
+}
 
 const MUTATING_REMOTE_ACTIONS = new Set([
   'crearJornada',
@@ -2354,7 +2360,7 @@ export class BadmintonEngine {
 
     Object.entries(this.inscritos).forEach(([key, participants]) => {
       const category = key.slice(key.indexOf('_') + 1);
-      if (!['IF-A', 'IF-B', 'DF'].includes(category) || !Array.isArray(participants)) return;
+      if (!['IF', 'IF-A', 'IF-B', 'DF'].includes(category) || !Array.isArray(participants)) return;
       participants.forEach(participant => {
         (participant.ids || []).forEach((id, index) => {
           const name = participant.nombres?.[index] ||
@@ -2364,7 +2370,7 @@ export class BadmintonEngine {
       });
     });
     this.partidos.forEach(match => {
-      if (!['IF-A', 'IF-B', 'DF'].includes(match.categoria)) return;
+      if (!['IF', 'IF-A', 'IF-B', 'DF'].includes(match.categoria)) return;
       ['A', 'B'].forEach(side => {
         (match[`ids${side}`] || []).forEach((id, index) => {
           const name = match[`nom${side}`]?.[index] ||
@@ -2383,8 +2389,9 @@ export class BadmintonEngine {
       if (p.estado !== 'Jugado' || !Array.isArray(p.sets)) return;
       const idsA = p.idsA || [];
       const idsB = p.idsB || [];
+      const rankingCategory = getRankingCategory(p.categoria);
       [...idsA, ...idsB].forEach(id => {
-        if (playerStats[id]) playerStats[id].participaciones.add(p.categoria);
+        if (playerStats[id]) playerStats[id].participaciones.add(rankingCategory);
       });
 
       let pfA = 0, pfB = 0;
@@ -2410,12 +2417,13 @@ export class BadmintonEngine {
       if (separator < 0) return;
       const jornadaId = key.slice(0, separator);
       const categoria = key.slice(separator + 1);
+      const rankingCategory = getRankingCategory(categoria);
       const matches = this.partidos.filter(p =>
         p.jornada === jornadaId && p.categoria === categoria
       );
       const inscritos = this.inscritos[key] || [];
       const pointsByPlayer = new Map();
-      const femaleRanking = ['IF-A', 'IF-B', 'DF'].includes(categoria);
+      const femaleRanking = ['IF', 'DF'].includes(rankingCategory);
       const addPoints = (playerId, points) => {
         if (!playerStats[playerId] ||
             (femaleRanking && wildcardFemalePlayerIds.has(String(playerId)))) return;
@@ -2514,9 +2522,10 @@ export class BadmintonEngine {
 
       pointsByPlayer.forEach((points, playerId) => {
         const st = playerStats[playerId];
-        st.participaciones.add(categoria);
-        if (!st.porCategoriaJornada[categoria]) st.porCategoriaJornada[categoria] = {};
-        st.porCategoriaJornada[categoria][jornadaId] = points;
+        st.participaciones.add(rankingCategory);
+        if (!st.porCategoriaJornada[rankingCategory]) st.porCategoriaJornada[rankingCategory] = {};
+        st.porCategoriaJornada[rankingCategory][jornadaId] =
+          (st.porCategoriaJornada[rankingCategory][jornadaId] || 0) + points;
       });
     });
 
@@ -2525,13 +2534,11 @@ export class BadmintonEngine {
         id: '2026-27',
         etiqueta: '2026/27',
         categorias: {
-          'IM-A': this.buildRankingCategory('IM-A', 'IM', 'A', 'M', playerStats),
-          'IF-A': this.buildRankingCategory('IF-A', 'IF', 'A', 'F', playerStats),
-          'IM-B': this.buildRankingCategory('IM-B', 'IM', 'B', 'M', playerStats),
-          'IF-B': this.buildRankingCategory('IF-B', 'IF', 'B', 'F', playerStats),
-          'DM': this.buildRankingCategory('DM', 'DM', '', 'M', playerStats),
-          'DF': this.buildRankingCategory('DF', 'DF', '', 'F', playerStats),
-          'DX': this.buildRankingCategory('DX', 'DX', '', '', playerStats)
+          'IM': this.buildRankingCategory('IM', 'IM', 'M', playerStats),
+          'IF': this.buildRankingCategory('IF', 'IF', 'F', playerStats),
+          'DM': this.buildRankingCategory('DM', 'DM', 'M', playerStats),
+          'DF': this.buildRankingCategory('DF', 'DF', 'F', playerStats),
+          'DX': this.buildRankingCategory('DX', 'DX', '', playerStats)
         }
       }
     ];
@@ -2545,10 +2552,10 @@ export class BadmintonEngine {
     };
   }
 
-  buildRankingCategory(catName, tipo, nivel, sexo, playerStats) {
+  buildRankingCategory(catName, tipo, sexo, playerStats) {
     const jornadasList = this.jornadas.map((j, i) => ({ n: i + 1, id: j.id, fecha: j.fecha }));
     const MEJORES = 3;
-    const isFemaleRanking = ['IF-A', 'IF-B', 'DF'].includes(catName);
+    const isFemaleRanking = ['IF', 'DF'].includes(catName);
 
     const jugadores = Object.values(playerStats)
       .filter(st => {
@@ -2558,7 +2565,6 @@ export class BadmintonEngine {
           : ['F', 'FEMENINO', 'MUJER'].includes(playerSex));
         return matchesSex &&
           !(isFemaleRanking && WILDCARD_FEMALE_NAMES.has(normalizeRankingName(st.nombre))) &&
-          (!nivel || String(st.categoria || '').toUpperCase() === nivel) &&
           st.participaciones.has(catName);
       })
       .map(st => {
@@ -2590,10 +2596,7 @@ export class BadmintonEngine {
 
     const compareRankingResults = (a, b) =>
         b.total - a.total ||
-        b.PG - a.PG ||
-        a.PP - b.PP ||
         b.difPartidos - a.difPartidos ||
-        b.difPuntos - a.difPuntos ||
         b.PF - a.PF;
 
     jugadores.sort((a, b) =>
@@ -2603,13 +2606,12 @@ export class BadmintonEngine {
       const previous = jugadores[index - 1];
       player.pos = previous && compareRankingResults(previous, player) === 0
         ? previous.pos
-        : (previous ? previous.pos + 1 : 1);
+        : index + 1;
     });
 
     return {
       categoria: catName,
       tipo,
-      nivel,
       jornadas: jornadasList,
       jugadores
     };

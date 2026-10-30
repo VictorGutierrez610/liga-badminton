@@ -55,7 +55,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   let selectedPlayerP2 = null;
 
   let rankSeason = "2026-27";
-  let rankLevel = "A";
   let rankType = "IM";
 
   // --- Core Initializer ---
@@ -1576,8 +1575,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       matches.forEach((s) => {
         const item = document.createElement("div");
         item.className = "suggest-item";
-        const level = s.categoria ? `Nivel ${escapeHtml(s.categoria)}` : "Sin nivel";
-        item.innerHTML = `<span><b>${escapeHtml(s.nombre)} ${escapeHtml(s.apellidos)}</b></span> <span class="badge badge-bye">${level}</span>`;
+        item.innerHTML = `<span><b>${escapeHtml(s.nombre)} ${escapeHtml(s.apellidos)}</b></span>`;
         item.addEventListener("click", () => {
           onSelect(s);
           box.style.display = "none";
@@ -1600,15 +1598,13 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       playerSex === expectedSex ||
       (expectedSex === "M" && ["MASCULINO", "H", "HOMBRE"].includes(playerSex)) ||
       (expectedSex === "F" && ["FEMENINO", "MUJER"].includes(playerSex));
-    const levelMatch = category.match(/-(A|B)$/);
     const rotatingDoubles = isRotatingManagerCategory();
     const validRotatingMixedSex = !rotatingDoubles || category !== "DX" ||
       ["M", "F", "MASCULINO", "FEMENINO", "H", "HOMBRE", "MUJER"].includes(playerSex);
     const alreadyInscribed = rotatingDoubles &&
       engine.getCompeticionDetalle(mgrJornadaId, mgrCategory).participantes
         .some(participant => (participant.ids || []).map(String).includes(String(socio.id)));
-    return !alreadyInscribed && validRotatingMixedSex && hasExpectedSex && (!levelMatch ||
-      String(socio.categoria || "").trim().toUpperCase() === levelMatch[1]);
+    return !alreadyInscribed && validRotatingMixedSex && hasExpectedSex;
   }
 
   function isRotatingManagerCategory() {
@@ -2391,7 +2387,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   // --- Rankings Logic ---
   function isWildcardFemaleRankingPlayer(player, category) {
-    if (!["IF-A", "IF-B", "DF"].includes(category)) return false;
+    if (!["IF", "IF-A", "IF-B", "DF"].includes(category)) return false;
     const name = String(player.nombre || "")
       .trim()
       .toLocaleLowerCase("es")
@@ -2413,9 +2409,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     document
       .getElementById("selectRankCategory")
       ?.addEventListener("change", (event) => {
-        const [type, level] = event.currentTarget.value.split("-");
-        rankType = type;
-        if (level) rankLevel = level;
+        rankType = event.currentTarget.value;
         updateMixedPointsImportVisibility();
         renderRankingsTable();
       });
@@ -2484,11 +2478,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
         : `Actualizado ${data.generado}`;
     }
 
-    const levelSegment = document.getElementById("levelSegmentRank");
-    const isSingle = rankType === "IM" || rankType === "IF";
-    if (levelSegment) levelSegment.style.display = isSingle ? "flex" : "none";
-
-    const catKey = isSingle ? `${rankType}-${rankLevel}` : rankType;
+    const catKey = rankType;
     const catFullName = {
       IM: "Individual Masculino",
       IF: "Individual Femenino",
@@ -2497,15 +2487,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       DX: "Dobles Mixtos",
     }[rankType];
 
-    if (titleEl) {
-      titleEl.textContent = isSingle
-        ? `${catFullName} · Nivel ${rankLevel}`
-        : catFullName;
-    }
+    if (titleEl) titleEl.textContent = catFullName;
     const subtitleEl = document.getElementById("rankTableSubtitle");
     if (subtitleEl) {
       subtitleEl.textContent =
-        "Ranking individual · Puntos de las 3 mejores jornadas · Desempates con resultados de toda la liga";
+        "Puntos de las 3 mejores jornadas · Empate si coinciden el total, la diferencia de partidos y los puntos a favor";
     }
 
     const seasonData =
@@ -2622,8 +2608,14 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   // Canvas Export for JPEG/PDF
   function exportRankingCanvas(format) {
     const data = engine.getRanking();
-    const isSingle = rankType === "IM" || rankType === "IF";
-    const catKey = isSingle ? `${rankType}-${rankLevel}` : rankType;
+    const catKey = rankType;
+    const catFullName = {
+      IM: "Individual Masculino",
+      IF: "Individual Femenino",
+      DM: "Dobles Masculino",
+      DF: "Dobles Femenino",
+      DX: "Dobles Mixtos",
+    }[catKey];
     const seasonData =
       data.temporadas.find((t) => t.id === rankSeason) || data.temporadas[0];
     const catData = seasonData ? seasonData.categorias[catKey] : null;
@@ -2655,7 +2647,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     ctx.fillStyle = "#c4b5fd";
     ctx.font = "bold 36px sans-serif";
     ctx.fillText(
-      `Ranking ${catKey} · Temporada ${seasonData.etiqueta}`,
+      `Ranking ${catFullName} · Temporada ${seasonData.etiqueta}`,
       40,
       60,
     );
