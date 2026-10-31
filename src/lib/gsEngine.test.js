@@ -9,7 +9,7 @@ test('usa la URL activa de Apps Script como valor predeterminado', () => {
 
   assert.equal(
     instance.getWebAppUrl(),
-    'https://script.google.com/macros/s/AKfycbzGMQlzE-e-vyUOL73hZ4OL8KA4CRBb1d7rUBu0df4uxWOLyq9t4Ws6l_LdK_PNgVlNzw/exec'
+    'https://script.google.com/macros/s/AKfycbweDjz7DYZDOPmIqiipahOKSPvbtvGJJMvGIAq_KTuGow0FODbJTs_yna-vKvTBFxIJ9Q/exec'
   );
 });
 
@@ -17,6 +17,7 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   try {
     for (const previousUrl of [
+      'https://script.google.com/macros/s/AKfycbzGMQlzE-e-vyUOL73hZ4OL8KA4CRBb1d7rUBu0df4uxWOLyq9t4Ws6l_LdK_PNgVlNzw/exec',
       'https://script.google.com/macros/s/AKfycbzIZxijx_DRPCR7ycYnKSSO2kugZCzBgvimcJ09N-a5HKel5xqHMt9d_wWWyl1-smkOEQ/exec',
       'https://script.google.com/macros/s/AKfycbw7rsu5xrVT06FlpZHgilAA8NZ3UkN_v1J2Id1ynHnmsEgKMy8-9meMdEq6zg1BUb2oEQ/exec',
       'https://script.google.com/macros/s/AKfycbw07qlmfatAryNZix_7qDC5rih5QOzYGXkg9i2FcAgt2DvmedJv7QcEit4kQEo4VSVyKg/exec',
@@ -33,7 +34,7 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
       });
 
       const instance = new BadmintonEngine();
-      const activeUrl = 'https://script.google.com/macros/s/AKfycbzGMQlzE-e-vyUOL73hZ4OL8KA4CRBb1d7rUBu0df4uxWOLyq9t4Ws6l_LdK_PNgVlNzw/exec';
+      const activeUrl = 'https://script.google.com/macros/s/AKfycbweDjz7DYZDOPmIqiipahOKSPvbtvGJJMvGIAq_KTuGow0FODbJTs_yna-vKvTBFxIJ9Q/exec';
 
       assert.equal(instance.getWebAppUrl(), activeUrl);
       assert.equal(storage.get('liga_badminton_script_url'), activeUrl);
@@ -45,6 +46,47 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
       delete globalThis.localStorage;
     }
   }
+});
+
+test('permite lecturas públicas de Apps Script y mantiene protegidas las escrituras', () => {
+  const protectedBackend = APPS_SCRIPT_CODE.replace(
+    "const PIN_ADMIN = '';",
+    "const PIN_ADMIN = 'server-secret';"
+  );
+  const context = {};
+  runInNewContext(`${protectedBackend}\nthis.doPost = doPost;`, context);
+  context.getJornadas = () => [{ id: 'J1' }];
+  context.getSheetsRevision = () => 'revision-test';
+  context.LockService = {
+    getScriptLock: () => ({
+      waitLock() {},
+      hasLock: () => true,
+      releaseLock() {}
+    })
+  };
+  context.ContentService = {
+    MimeType: { JSON: 'application/json' },
+    createTextOutput: content => ({
+      content,
+      setMimeType() { return this; }
+    })
+  };
+
+  const readResponse = context.doPost({
+    postData: { contents: JSON.stringify({ action: 'getJornadas' }) }
+  });
+  assert.deepEqual(JSON.parse(readResponse.content), {
+    success: true,
+    result: [{ id: 'J1' }],
+    revision: 'revision-test'
+  });
+
+  const writeResponse = context.doPost({
+    postData: { contents: JSON.stringify({ action: 'crearJornada' }) }
+  });
+  assert.deepEqual(JSON.parse(writeResponse.content), {
+    error: 'PIN de administracion incorrecto.'
+  });
 });
 
 test('verifica que una jornada rotativa se haya persistido en Google Sheets', async () => {

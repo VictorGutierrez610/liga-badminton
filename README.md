@@ -39,6 +39,8 @@ npm run sync:apps-script
 
 El backend devuelve una revisión de los datos y exige esa revisión en las operaciones de escritura. Por ello, sincronizar requiere una conexión al backend actualizado y haber cargado primero los datos remotos. Si la revisión cambió, la aplicación rechaza la escritura para evitar sobrescribir cambios concurrentes; hay que recargar y revisar antes de volver a intentarlo. La sincronización completa valida el contenido y trata de restaurar las filas previas si falla una escritura.
 
+Las lecturas de jornadas y partidos son públicas para que el modo espectador funcione sin depender de datos guardados en el navegador. Las escrituras siguen comprobando `PIN_ADMIN` cuando está configurado. Al actualizar Apps Script, conserva el PIN existente en esa constante y despliega una nueva versión de la implementación web; cambiar el dominio no comparte el almacenamiento local del navegador entre los dos dominios.
+
 Los desempates de grupos vigentes son, en este orden: victorias, diferencia de sets, diferencia de puntos y nombre. Las clasificaciones se muestran como provisionales mientras haya partidos de grupo pendientes.
 
 En parejas rotativas, los desempates individuales son: victorias, diferencia de puntos, puntos a favor y nombre. La hoja `Jornadas` añade `ParejasRotativas` después de sus encabezados existentes. El Apps Script reconoce tanto los encabezados estándar como los nombres heredados `ID_Jornada` y `BO3_Desde`, y conserva columnas adicionales como `Creada`. Las hojas `Partidos` e `Inscritos` mantienen sus formatos actuales.

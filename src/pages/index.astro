@@ -202,6 +202,16 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       else renderDataSyncNotice("Datos actualizados desde Google Sheets.", "success");
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      if (engine.getJornadas().length === 0) {
+        const jornadaSelect = document.getElementById("selectJornadaVis");
+        const subtitle = document.getElementById("jornadaInfoSubtitle");
+        if (jornadaSelect) {
+          jornadaSelect.innerHTML = '<option value="">Error al cargar jornadas</option>';
+        }
+        if (subtitle) {
+          subtitle.textContent = `No se pudieron cargar las jornadas de Google Sheets. ${detail}`;
+        }
+      }
       renderDataSyncNotice(
         `No se pudieron actualizar los datos remotos. Se mantiene la copia local. ${detail}`,
         "warning",

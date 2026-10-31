@@ -20,15 +20,15 @@ function doPost(e) {
     const request = JSON.parse(e.postData.contents);
     const action  = request.action;
     const pin     = request.pin || '';
+    const readActions = ['getSocios', 'getJornadas', 'getAllData'];
 
-    if (PIN_ADMIN && String(pin) !== String(PIN_ADMIN)) {
+    if (readActions.indexOf(action) === -1 && PIN_ADMIN && String(pin) !== String(PIN_ADMIN)) {
       return responseJSON({ error: 'PIN de administracion incorrecto.' });
     }
 
     lock = LockService.getScriptLock();
     lock.waitLock(30000);
 
-    const readActions = ['getSocios', 'getJornadas', 'getAllData'];
     if (readActions.indexOf(action) === -1) {
       const actualRevision = getSheetsRevision();
       if (!request.expectedRevision || String(request.expectedRevision) !== actualRevision) {
