@@ -9,7 +9,7 @@ test('usa la URL activa de Apps Script como valor predeterminado', () => {
 
   assert.equal(
     instance.getWebAppUrl(),
-    'https://script.google.com/macros/s/AKfycbweDjz7DYZDOPmIqiipahOKSPvbtvGJJMvGIAq_KTuGow0FODbJTs_yna-vKvTBFxIJ9Q/exec'
+    'https://script.google.com/macros/s/AKfycbwO7ymkNJwgNTNUdKUTriF1Qmybv7YHdNIEe5EYCIvxu93giSIOrAHV7EpaO3TGh5kYUg/exec'
   );
 });
 
@@ -34,7 +34,7 @@ test('actualiza las URL predeterminadas anteriores guardadas en el navegador', (
       });
 
       const instance = new BadmintonEngine();
-      const activeUrl = 'https://script.google.com/macros/s/AKfycbweDjz7DYZDOPmIqiipahOKSPvbtvGJJMvGIAq_KTuGow0FODbJTs_yna-vKvTBFxIJ9Q/exec';
+      const activeUrl = 'https://script.google.com/macros/s/AKfycbwO7ymkNJwgNTNUdKUTriF1Qmybv7YHdNIEe5EYCIvxu93giSIOrAHV7EpaO3TGh5kYUg/exec';
 
       assert.equal(instance.getWebAppUrl(), activeUrl);
       assert.equal(storage.get('liga_badminton_script_url'), activeUrl);
