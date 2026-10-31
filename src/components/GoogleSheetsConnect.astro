@@ -83,6 +83,14 @@
           <button class="btn btn-secondary btn-sm" id="btnDownloadSheetsBackup" style="width:100%;">
             ⬇️ Descargar copia de seguridad de Google Sheets
           </button>
+          <div class="form-group" style="margin-top:10px;">
+            <label class="form-label" for="inputSheetsBackupFile">Restaurar desde una copia JSON:</label>
+            <input type="file" id="inputSheetsBackupFile" class="form-control" accept=".json,application/json" />
+            <small class="text-muted" style="display:block; margin-top:4px;">La restauración reemplaza las cinco pestañas de datos; usa una copia JSON descargada desde esta aplicación.</small>
+          </div>
+          <button class="btn btn-danger btn-sm" id="btnRestoreSheetsBackup" style="width:100%;">
+            ♻️ Restaurar copia en Google Sheets
+          </button>
           <div id="backupResultMsg" class="text-center" role="status" aria-live="polite" style="font-size:13px; margin-top:6px; min-height:20px;"></div>
         </div>
       </div>

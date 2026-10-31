@@ -730,6 +730,80 @@ export class BadmintonEngine {
     });
   }
 
+  async restoreBackupToSheets(backup) {
+    const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (
+      !isRecord(backup) ||
+      !Array.isArray(backup.socios) ||
+      !Array.isArray(backup.jornadas) ||
+      !Array.isArray(backup.partidos) ||
+      !isRecord(backup.inscritos) ||
+      !isRecord(backup.competiciones)
+    ) {
+      throw new Error('El archivo no contiene una copia completa de socios, jornadas, inscritos, competiciones y partidos.');
+    }
+
+    const hasId = value => isRecord(value) && String(value.id || '').trim() !== '';
+    if (
+      backup.socios.some(socio => !hasId(socio)) ||
+      backup.jornadas.some(jornada => !hasId(jornada)) ||
+      backup.partidos.some(match => !hasId(match)) ||
+      Object.values(backup.inscritos).some(list =>
+        !Array.isArray(list) || list.some(participant =>
+          !hasId(participant) || !Array.isArray(participant.ids) || !Array.isArray(participant.nombres)
+        )
+      ) ||
+      Object.values(backup.competiciones).some(competition => !isRecord(competition))
+    ) {
+      throw new Error('El archivo de copia contiene registros con una estructura no válida.');
+    }
+
+    if (!this.getWebAppUrl()) {
+      throw new Error('Configura primero una conexión válida con Google Sheets para restaurar la copia.');
+    }
+
+    const data = {
+      socios: backup.socios,
+      jornadas: backup.jornadas,
+      inscritos: backup.inscritos,
+      competiciones: backup.competiciones,
+      partidos: backup.partidos
+    };
+
+    await this.fetchAllFromSheets({ discardLocal: true });
+    this.socios = data.socios;
+    this.jornadas = data.jornadas;
+    this.inscritos = data.inscritos;
+    this.competiciones = data.competiciones;
+    this.partidos = data.partidos;
+    this.localChangesPending = true;
+    this.saveState();
+
+    try {
+      const result = await this.syncAllToSheets(data, { confirmedOverwrite: true });
+      const restored = await this.callRemote('getAllData', {}, { strict: true });
+      if (!this.matchesSyncedState(data, restored)) {
+        throw new Error('Google Sheets no coincide con la copia restaurada. Despliega el código Apps Script actualizado y vuelve a intentarlo.');
+      }
+      if (!restored.revision) {
+        throw new Error('Google Sheets no devolvió una revisión para verificar la copia restaurada.');
+      }
+      this.remoteRevision = restored.revision;
+      this.remoteConflictRevision = null;
+      this.localChangesPending = false;
+      this.lastSyncStatus = 'synced';
+      this.lastRemoteError = '';
+      this.saveState();
+      return result;
+    } catch (error) {
+      this.localChangesPending = true;
+      this.lastSyncStatus = 'remote-error';
+      this.lastRemoteError = error instanceof Error ? error.message : String(error);
+      this.saveState();
+      throw error;
+    }
+  }
+
   // --- Inscripciones ---
   async anadirInscrito(idJornada, categoria, ids) {
     const key = `${idJornada}_${categoria}`;
@@ -1062,6 +1136,7 @@ export class BadmintonEngine {
   // Sincronización completa de todo el estado local a Google Sheets
   getStateSnapshot() {
     return {
+      socios: this.socios,
       jornadas: this.jornadas,
       inscritos: this.inscritos,
       competiciones: this.competiciones,
@@ -1070,8 +1145,8 @@ export class BadmintonEngine {
   }
 
   async syncAllToSheets(data = this.getStateSnapshot(), { confirmedOverwrite = false } = {}) {
-    if (!Array.isArray(data.jornadas) || !Array.isArray(data.partidos)) {
-      throw new Error('El estado local no contiene listas válidas de jornadas y partidos.');
+    if (!Array.isArray(data.socios) || !Array.isArray(data.jornadas) || !Array.isArray(data.partidos)) {
+      throw new Error('El estado local no contiene listas válidas de socios, jornadas y partidos.');
     }
 
     try {
@@ -1194,6 +1269,7 @@ export class BadmintonEngine {
       !Array.isArray(actual.socios) ||
       !actual.inscritos ||
       !actual.competiciones ||
+      !Array.isArray(expected.socios) ||
       !Array.isArray(expected.jornadas) ||
       !Array.isArray(expected.partidos) ||
       !expected.inscritos ||
@@ -1203,6 +1279,7 @@ export class BadmintonEngine {
     }
 
     if (
+      actual.socios.length !== expected.socios.length ||
       actual.jornadas.length !== expected.jornadas.length ||
       actual.partidos.length !== expected.partidos.length ||
       Object.keys(actual.inscritos).length !== Object.keys(expected.inscritos).length ||
@@ -1210,6 +1287,17 @@ export class BadmintonEngine {
     ) {
       return false;
     }
+
+    const actualSocios = new Map(actual.socios.map(socio => [String(socio.id), socio]));
+    const sameSocios = expected.socios.every(expectedSocio => {
+      const socio = actualSocios.get(String(expectedSocio.id));
+      return socio &&
+        String(socio.nombre || '') === String(expectedSocio.nombre || '') &&
+        String(socio.apellidos || '') === String(expectedSocio.apellidos || '') &&
+        String(socio.categoria || '') === String(expectedSocio.categoria || '') &&
+        String(socio.sexo || '') === String(expectedSocio.sexo || '');
+    });
+    if (!sameSocios) return false;
 
     const actualJornadas = new Map(actual.jornadas.map(jornada => [String(jornada.id), jornada]));
     const sameJornadas = expected.jornadas.every(expectedJornada => {

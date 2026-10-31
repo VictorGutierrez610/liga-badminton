@@ -758,6 +758,61 @@ test('preserva la marca local de parejas rotativas si Apps Script devuelve una j
   assert.match(instance.lastRemoteError, /Apps Script actualizado/);
 });
 
+test('restaura una copia completa, incluidos socios, y verifica el contenido remoto', async () => {
+  const instance = createEngine();
+  instance.saveState = () => {};
+  instance.syncAllToSheets = BadmintonEngine.prototype.syncAllToSheets.bind(instance);
+  const backup = {
+    socios: [{ id: 's1', nombre: 'Ana', apellidos: 'Prueba', categoria: 'B', sexo: 'F' }],
+    jornadas: [],
+    inscritos: {},
+    competiciones: {},
+    partidos: []
+  };
+  let remoteRead = 0;
+  const actions = [];
+  instance.callRemote = async (action, payload = {}) => {
+    actions.push(action);
+    if (action === 'getAllData') {
+      remoteRead++;
+      return {
+        ...backup,
+        socios: remoteRead === 1 ? [] : backup.socios,
+        revision: remoteRead === 1 ? 'revision-actual' : 'revision-restaurada'
+      };
+    }
+    if (action === 'syncAll') {
+      assert.deepEqual(payload.data.socios, backup.socios);
+      return { revision: 'revision-sync', jornadas: 0, partidos: 0 };
+    }
+    throw new Error(`Acción inesperada: ${action}`);
+  };
+
+  const result = await instance.restoreBackupToSheets(backup);
+
+  assert.deepEqual(actions, ['getAllData', 'syncAll', 'getAllData']);
+  assert.equal(result.revision, 'revision-sync');
+  assert.deepEqual(instance.socios, backup.socios);
+  assert.equal(instance.remoteRevision, 'revision-restaurada');
+  assert.equal(instance.localChangesPending, false);
+  assert.equal(instance.lastSyncStatus, 'synced');
+});
+
+test('rechaza copias incompletas antes de consultar o cambiar Google Sheets', async () => {
+  const instance = createEngine();
+  let remoteCalls = 0;
+  instance.callRemote = async () => {
+    remoteCalls++;
+    throw new Error('No debería consultar Sheets.');
+  };
+
+  await assert.rejects(
+    instance.restoreBackupToSheets({ jornadas: [], partidos: [] }),
+    /copia completa/
+  );
+  assert.equal(remoteCalls, 0);
+});
+
 test('rechaza una sincronización que confirma el guardado pero pierde la marca rotativa', async () => {
   const instance = createEngine();
   instance.jornadas[0].parejasRotativas = true;
@@ -973,6 +1028,48 @@ test('lee puntos precalculados y configuración rotativa desde la hoja Competici
   assert.equal(data.competiciones['J1_DX'].puntosPrecalculados.f1, 110);
   assert.equal(data.competiciones['J1_DX'].rondas, 3);
   assert.equal(data.competiciones['J1_DX'].partidosPorRonda, 2);
+});
+
+test('sincroniza los socios de una copia en las columnas actuales de la hoja Socios', () => {
+  const context = {};
+  runInNewContext(`${APPS_SCRIPT_CODE}\nthis.syncAll = syncAll;`, context);
+  let revisionCalls = 0;
+  const writes = [];
+  const sheet = name => ({
+    name,
+    getLastRow: () => 1,
+    getRange: () => ({ getValues: () => [] })
+  });
+  context.getSheetsRevision = () => revisionCalls++ === 0 ? 'revision-previa' : 'revision-nueva';
+  context.getJornadasSheet = () => sheet('Jornadas');
+  context.getJornadasColumns = () => ({
+    id: 0, fecha: 1, modalidad: 2, formato: 3, desde: 4,
+    puntosSet: 5, ganarPor2: 6, estado: 7, rotating: 8, width: 9
+  });
+  context.sheetRows = () => [];
+  context.jornadaRow = () => [];
+  context.getOrCreateSheet = name => sheet(name);
+  context.getCompeticionesSheet = () => sheet('Competiciones');
+  context.getPartidosSheet = () => sheet('Partidos');
+  context._partidoRow = () => [];
+  context.replaceSheetRows = (targetSheet, width, rows) => {
+    writes.push({ name: targetSheet.name, width, rows });
+  };
+
+  context.syncAll({
+    socios: [{ id: 's1', nombre: 'Ana', apellidos: 'Prueba', categoria: 'B', sexo: 'F' }],
+    jornadas: [],
+    inscritos: {},
+    competiciones: {},
+    partidos: []
+  }, 'revision-previa');
+
+  const sociosWrite = writes.find(write => write.name === 'Socios');
+  assert.equal(sociosWrite.width, 5);
+  assert.equal(
+    JSON.stringify(sociosWrite.rows),
+    JSON.stringify([['s1', 'Ana', 'Prueba', 'B', 'F']])
+  );
 });
 
 test('reconoce los encabezados de Jornadas existentes y añade parejas rotativas sin sobrescribir columnas', () => {

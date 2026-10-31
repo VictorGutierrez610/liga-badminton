@@ -634,7 +634,7 @@ function borrarResultado(idPartido) {
 // ─── SYNC COMPLETO ───────────────────────────────────────────────────
 
 function syncAll(data, expectedRevision) {
-  if (!data || !Array.isArray(data.jornadas) || !Array.isArray(data.partidos) ||
+  if (!data || !Array.isArray(data.socios) || !Array.isArray(data.jornadas) || !Array.isArray(data.partidos) ||
       !data.inscritos || typeof data.inscritos !== 'object' ||
       !data.competiciones || typeof data.competiciones !== 'object') {
     throw new Error('El conjunto de datos para sincronizar no tiene un formato válido.');
@@ -644,6 +644,18 @@ function syncAll(data, expectedRevision) {
     throw new Error('Los datos de Google Sheets cambiaron desde la última carga. No se sobrescribieron; vuelve a cargar y revisar los cambios.');
   }
 
+  const socioRows = data.socios.map(socio => {
+    if (!socio || socio.id == null || String(socio.id).trim() === '') {
+      throw new Error('La lista de socios contiene un registro sin ID.');
+    }
+    return [
+      socio.id,
+      socio.nombre || '',
+      socio.apellidos || '',
+      socio.categoria || '',
+      socio.sexo || ''
+    ];
+  });
   const jornadasSheet = getJornadasSheet();
   const jornadaColumns = getJornadasColumns(jornadasSheet);
   const currentJornadaRows = sheetRows(jornadasSheet);
@@ -672,6 +684,7 @@ function syncAll(data, expectedRevision) {
   const partidoRows = data.partidos.map(_partidoRow);
 
   const tables = [
+    [getOrCreateSheet('Socios', ['ID','Nombre','Apellidos','Categoria','Sexo']), 5, socioRows],
     [jornadasSheet, jornadaColumns.width, jornadaRows],
     [getOrCreateSheet('Inscritos', ['JornadaID','Categoria','ParticipanteID','IDs','Nombres']), 5, inscritoRows],
     [getCompeticionesSheet(), 8, competicionRows],

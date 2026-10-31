@@ -2895,6 +2895,87 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           stopLoading();
         }
       });
+
+    document
+      .getElementById("btnRestoreSheetsBackup")
+      ?.addEventListener("click", async (event) => {
+        const msg = document.getElementById("backupResultMsg");
+        const fileInput = document.getElementById("inputSheetsBackupFile") as HTMLInputElement | null;
+        const file = fileInput?.files?.[0];
+        if (!engine.isAdminSession()) {
+          if (msg) {
+            msg.style.color = "var(--accent-red)";
+            msg.textContent = "La restauración requiere el Modo Administrador.";
+          }
+          openAdminModal();
+          return;
+        }
+        if (!file) {
+          if (msg) {
+            msg.style.color = "var(--accent-red)";
+            msg.textContent = "Selecciona primero un archivo JSON de copia de seguridad.";
+          }
+          return;
+        }
+
+        const stopLoading = setButtonLoading(
+          event.currentTarget as HTMLButtonElement,
+          "Restaurando copia…",
+        );
+        try {
+          let backup;
+          try {
+            backup = JSON.parse(await file.text());
+          } catch {
+            throw new Error("El archivo seleccionado no contiene un JSON válido.");
+          }
+          if (
+            !backup ||
+            !Array.isArray(backup.socios) ||
+            !Array.isArray(backup.jornadas) ||
+            !Array.isArray(backup.partidos) ||
+            !backup.inscritos ||
+            !backup.competiciones
+          ) {
+            throw new Error("El JSON no tiene el formato de una copia de seguridad completa.");
+          }
+
+          const confirmed = confirm(
+            `Se reemplazarán en Google Sheets los datos de las cinco pestañas (Socios, Jornadas, Inscritos, Competiciones y Partidos) por los del archivo "${file.name}". También se actualizarán los datos locales de esta aplicación. Esta acción no se puede deshacer desde la aplicación. ¿Quieres continuar?`,
+          );
+          if (!confirmed) {
+            if (msg) {
+              msg.style.color = "var(--text-muted)";
+              msg.textContent = "Restauración cancelada; no se modificaron los datos.";
+            }
+            return;
+          }
+
+          if (msg) {
+            msg.style.color = "var(--text-muted)";
+            msg.textContent = "Cargando la revisión actual y restaurando las cinco pestañas…";
+          }
+          const result = await engine.restoreBackupToSheets(backup);
+          loadJornadasManager();
+          loadJornadasVisualizer();
+          renderCategoryVisuals();
+          renderRankingsTable();
+          renderDataSyncNotice("Copia restaurada y verificada en Google Sheets.", "success");
+          if (msg) {
+            msg.style.color = "var(--accent-green)";
+            msg.textContent = `Restauración completada: ${result.jornadas} jornada(s), ${result.partidos} partido(s) y ${backup.socios.length} socio(s).`;
+          }
+        } catch (error) {
+          if (msg) {
+            msg.style.color = "var(--accent-red)";
+            msg.textContent = `No se pudo restaurar la copia: ${error instanceof Error ? error.message : String(error)}`;
+          }
+          renderDataSyncNotice();
+        } finally {
+          if (fileInput) fileInput.value = "";
+          stopLoading();
+        }
+      });
   }
 
   // --- Utility ---
