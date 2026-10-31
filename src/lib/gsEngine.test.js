@@ -468,6 +468,20 @@ test('valida el mejor de tres sets y la regla de ganar por dos', () => {
   assert.throws(() => instance.validateScore(match, [[17, 15]]), /al menos dos sets/);
 });
 
+test('valida un partido a 21 o a 7 puntos sin cambiar la jornada y lo refleja en getJornadas', () => {
+  const instance = createEngine({ formato: 'UNO' });
+  const match = { id: 'm1', jornada: 'J1', ronda: 'Final', estado: 'Pendiente', idsA: ['1'], idsB: ['2'] };
+
+  assert.throws(() => instance.validateScore(match, [[21, 10]]), /al llegar a 15/);
+  assert.equal(instance.validateScore({ ...match, puntosSet: 21 }, [[21, 10]]), 'A');
+  assert.equal(instance.validateScore({ ...match, puntosSet: 7 }, [[3, 7]]), 'B');
+  assert.throws(() => instance.validateScore({ ...match, puntosSet: 11 }, [[11, 3]]), /no es válida/);
+
+  instance.partidos = [{ ...match, puntosSet: 21 }];
+  assert.deepEqual(instance.getJornadas()[0].puntosSetPartidos, [21]);
+  assert.equal(instance.jornadas[0].puntosSet, 15);
+});
+
 test('resuelve el formato mixto a partir de la ronda configurada', () => {
   const instance = createEngine({ formato: 'MIXTO', desde: 'Semifinal' });
 
@@ -1011,7 +1025,8 @@ test('añade la columna de formato individual a la hoja de partidos existente', 
   context.getPartidosSheet();
 
   assert.equal(headers[14], 'FormatoPartido');
-  assert.equal(headers.length, 15);
+  assert.equal(headers[15], 'PuntosPartido');
+  assert.equal(headers.length, 16);
 });
 
 test('añade columnas de rondas rotativas a Competiciones sin alterar las existentes', () => {

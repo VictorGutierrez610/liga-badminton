@@ -35,6 +35,8 @@ export const CATEGORIAS = {
   'Dobles mixtos': ['DX']
 };
 
+export const MATCH_POINT_TARGETS = [7, 15, 21];
+
 function getRankingCategory(category) {
   if (category === 'IM-A' || category === 'IM-B') return 'IM';
   if (category === 'IF-A' || category === 'IF-B') return 'IF';
@@ -508,9 +510,17 @@ export class BadmintonEngine {
         cuenta[p.jornada] = (cuenta[p.jornada] || 0) + 1;
       }
     });
+    const puntosPartidos = {};
+    this.partidos.forEach(p => {
+      const jornada = this.jornadas.find(j => j.id === p.jornada);
+      const target = Number(p.puntosSet);
+      if (!jornada || !target || target === Number(jornada.puntosSet)) return;
+      (puntosPartidos[p.jornada] = puntosPartidos[p.jornada] || new Set()).add(target);
+    });
     return this.jornadas.map(j => ({
       ...j,
-      partidos: cuenta[j.id] || 0
+      partidos: cuenta[j.id] || 0,
+      puntosSetPartidos: [...(puntosPartidos[j.id] || [])].sort((a, b) => a - b)
     })).sort((a, b) => b.fecha.localeCompare(a.fecha));
   }
 
@@ -2132,7 +2142,10 @@ export class BadmintonEngine {
 
     const jornada = jornadaOverride || this.jornadas.find(item => item.id === match.jornada);
     if (!jornada) throw new Error('No se encuentra la jornada del partido.');
-    const target = Number(jornada.puntosSet);
+    if (match.puntosSet && !MATCH_POINT_TARGETS.includes(Number(match.puntosSet))) {
+      throw new Error('La puntuación individual del partido no es válida.');
+    }
+    const target = Number(match.puntosSet) || Number(jornada.puntosSet);
     if (!Number.isInteger(target) || target < 1 || target > 50) {
       throw new Error('La jornada tiene una puntuación por set no válida.');
     }
@@ -2184,12 +2197,13 @@ export class BadmintonEngine {
       setWinners.filter(winner => winner === 'B').length ? 'A' : 'B';
   }
 
-  async guardarResultado(idPartido, sets, formato) {
+  async guardarResultado(idPartido, sets, formato, puntosSet) {
     const p = this.partidos.find(x => x.id === idPartido);
     if (!p) throw new Error('No se encuentra el partido.');
 
     const matchFormat = formato === undefined ? (p.formato || '') : formato;
-    const matchWithFormat = { ...p, formato: matchFormat };
+    const matchPoints = puntosSet === undefined ? (p.puntosSet || '') : (puntosSet || '');
+    const matchWithFormat = { ...p, formato: matchFormat, puntosSet: matchPoints };
     const ganador = this.validateScore(matchWithFormat, sets);
     const updatedMatch = {
       ...matchWithFormat,

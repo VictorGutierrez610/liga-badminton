@@ -277,7 +277,7 @@ function getAllData() {
         idsB: String(r[10] || '').split('|').filter(Boolean),
         nomB: String(r[11] || '').split(' / ').filter(Boolean),
         sets: Array.isArray(sets) ? sets : [], ganador: r[13] || '',
-        formato: r[14] || '', registrado: ''
+        formato: r[14] || '', puntosSet: Number(r[15]) || '', registrado: ''
       };
     });
 
@@ -347,7 +347,7 @@ function quitarInscrito(idJornada, categoria, idPart) {
 
 function _hP() {
   return ['ID','JornadaID','Fecha','Categoria','Ronda','Grupo','Orden',
-          'Estado','IdsA','NomA','IdsB','NomB','Sets','Ganador','FormatoPartido'];
+          'Estado','IdsA','NomA','IdsB','NomB','Sets','Ganador','FormatoPartido','PuntosPartido'];
 }
 
 function _hC() {
@@ -379,13 +379,15 @@ function getPartidosSheet() {
   const headers = _hP();
   const sheet = getOrCreateSheet('Partidos', headers);
   if (typeof sheet.getLastColumn === 'function') {
-    const headerCell = sheet.getRange(1, headers.length);
-    const hasHeaderValue = typeof headerCell.getValue === 'function';
-    if (
-      (hasHeaderValue && headerCell.getValue() !== headers[headers.length - 1]) ||
-      (!hasHeaderValue && sheet.getLastColumn() < headers.length)
-    ) {
-      headerCell.setValue(headers[headers.length - 1]).setFontWeight('bold');
+    for (let column = 15; column <= headers.length; column++) {
+      const headerCell = sheet.getRange(1, column);
+      const hasHeaderValue = typeof headerCell.getValue === 'function';
+      if (
+        (hasHeaderValue && headerCell.getValue() !== headers[column - 1]) ||
+        (!hasHeaderValue && sheet.getLastColumn() < column)
+      ) {
+        headerCell.setValue(headers[column - 1]).setFontWeight('bold');
+      }
     }
   }
   return sheet;
@@ -397,7 +399,7 @@ function _partidoRow(p) {
     p.estado||'Pendiente',
     (p.idsA||[]).join('|'), (p.nomA||[]).join(' / '),
     (p.idsB||[]).join('|'), (p.nomB||[]).join(' / '),
-    JSON.stringify(p.sets||[]), p.ganador||'', p.formato||''
+    JSON.stringify(p.sets||[]), p.ganador||'', p.formato||'', p.puntosSet||''
   ];
 }
 
@@ -502,7 +504,9 @@ function validarResultado(partido, sets) {
 
   const jornada = getJornadas().find(j => String(j.id) === String(partido.jornada));
   if (!jornada) throw new Error('No se encuentra la jornada del partido.');
-  const target = Number(jornada.puntosSet);
+  if (partido.puntosSet && [7, 15, 21].indexOf(Number(partido.puntosSet)) === -1)
+    throw new Error('La puntuación individual del partido no es válida.');
+  const target = Number(partido.puntosSet) || Number(jornada.puntosSet);
   if (!Number.isInteger(target) || target < 1 || target > 50)
     throw new Error('La jornada tiene una puntuación por set no válida.');
 
@@ -588,7 +592,11 @@ function guardarResultado(idPartido, sets, ganador, partido) {
         formato: partido && String(partido.id) === String(idPartido) &&
           Object.prototype.hasOwnProperty.call(partido, 'formato')
           ? partido.formato || ''
-          : existing[14] || ''
+          : existing[14] || '',
+        puntosSet: partido && String(partido.id) === String(idPartido) &&
+          Object.prototype.hasOwnProperty.call(partido, 'puntosSet')
+          ? partido.puntosSet || ''
+          : existing[15] || ''
       }
     : partido || null;
   if (!matchForValidation || String(matchForValidation.id) !== String(idPartido))
@@ -603,6 +611,7 @@ function guardarResultado(idPartido, sets, ganador, partido) {
       sheet.getRange(i+1,13).setValue(JSON.stringify(sets));
       sheet.getRange(i+1,14).setValue(ganador||'');
       sheet.getRange(i+1,15).setValue(matchForValidation.formato || '');
+      sheet.getRange(i+1,16).setValue(matchForValidation.puntosSet || '');
       return true;
     }
   }

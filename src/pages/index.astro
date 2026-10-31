@@ -880,6 +880,10 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const canOverrideFormat = m.ronda !== "Fase de grupos";
     formatControl.style.display = canOverrideFormat ? "" : "none";
     formatSelect.value = m.formato || "JORNADA";
+    const pointsSelect = document.getElementById("scoreMatchPoints");
+    pointsSelect.value = m.puntosSet ? String(m.puntosSet) : "JORNADA";
+    pointsSelect.options[0].textContent =
+      `Puntuación de la jornada (${jornada.puntosSet} puntos${jornada.ganarPor2 ? ", ganando por 2" : ""})`;
     formatSelect.options[0].textContent =
       `Formato de jornada (${format === "TRES" ? "Mejor de 3 sets" : "Mejor de 1 set"})`;
     document.getElementById("set2Row").style.display = format === "TRES" ? "" : "none";
@@ -1153,7 +1157,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       const matchFormat = formatControl.style.display === "none" || selectedFormat === "JORNADA"
         ? ""
         : selectedFormat;
-      await engine.guardarResultado(selectedScoreMatch.id, sets, matchFormat);
+      const selectedPoints = document.getElementById("scoreMatchPoints").value;
+      const matchPoints = selectedPoints === "JORNADA" ? "" : Number(selectedPoints);
+      await engine.guardarResultado(selectedScoreMatch.id, sets, matchFormat, matchPoints);
       closeScoreModal();
       refreshCompetitionState();
     } catch (err) {
@@ -1992,7 +1998,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           <td>${escapeHtml(j.modalidad)}${j.parejasRotativas ? '<small class="text-muted" style="display:block;">🔄 Parejas rotativas</small>' : ""}</td>
           <td>${formatControl}</td>
           <td>${desdeControl}</td>
-          <td>${j.puntosSet}</td>
+          <td>${j.puntosSet}${j.puntosSetPartidos?.length ? `<small class="text-muted" style="display:block;">+ partidos a ${j.puntosSetPartidos.map(escapeHtml).join(", ")}</small>` : ""}</td>
           <td>${j.ganarPor2 ? "Sí" : "No"}</td>
           <td>${j.partidos}</td>
           <td><span class="badge ${j.definitiva ? "badge-definitiva" : "badge-borrador"}">${j.definitiva ? "Definitiva" : "En Curso"}</span></td>
