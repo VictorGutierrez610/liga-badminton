@@ -217,10 +217,7 @@ test('comparte puestos si coinciden los puntos, la diferencia de partidos y los 
       categoria: 'A',
       participaciones: new Set(['DF']),
       porCategoriaJornada: { DF: { J1: 115 } },
-      PG: 3,
-      PP: 1,
-      PF: 89,
-      PC: 70
+      resultadosPorCategoria: { DF: { PG: 3, PP: 1, PF: 89, PC: 70 } }
     },
     {
       id: '2',
@@ -229,10 +226,7 @@ test('comparte puestos si coinciden los puntos, la diferencia de partidos y los 
       categoria: 'A',
       participaciones: new Set(['DF']),
       porCategoriaJornada: { DF: { J1: 115 } },
-      PG: 4,
-      PP: 2,
-      PF: 89,
-      PC: 80
+      resultadosPorCategoria: { DF: { PG: 4, PP: 2, PF: 89, PC: 80 } }
     },
     {
       id: '3',
@@ -241,10 +235,7 @@ test('comparte puestos si coinciden los puntos, la diferencia de partidos y los 
       categoria: 'A',
       participaciones: new Set(['DF']),
       porCategoriaJornada: { DF: { J1: 115 } },
-      PG: 2,
-      PP: 1,
-      PF: 80,
-      PC: 70
+      resultadosPorCategoria: { DF: { PG: 2, PP: 1, PF: 80, PC: 70 } }
     }
   ];
 

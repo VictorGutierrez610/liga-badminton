@@ -2447,7 +2447,7 @@ export class BadmintonEngine {
         sexo: s.sexo,
         porCategoriaJornada: {},
         participaciones: new Set(),
-        PG: 0, PP: 0, PF: 0, PC: 0
+        resultadosPorCategoria: {}
       };
     });
 
@@ -2495,10 +2495,12 @@ export class BadmintonEngine {
       const updatePlayer = (id, isTeamA, isWinner) => {
         if (!playerStats[id]) return;
         const st = playerStats[id];
-        st.PG += isWinner ? 1 : 0;
-        st.PP += isWinner ? 0 : 1;
-        st.PF += isTeamA ? pfA : pfB;
-        st.PC += isTeamA ? pfB : pfA;
+        const res = st.resultadosPorCategoria[rankingCategory] ||
+          (st.resultadosPorCategoria[rankingCategory] = { PG: 0, PP: 0, PF: 0, PC: 0 });
+        res.PG += isWinner ? 1 : 0;
+        res.PP += isWinner ? 0 : 1;
+        res.PF += isTeamA ? pfA : pfB;
+        res.PC += isTeamA ? pfB : pfA;
       };
 
       idsA.forEach(id => updatePlayer(id, true, p.ganador === 'A'));
@@ -2671,6 +2673,8 @@ export class BadmintonEngine {
         const mejoresIndices = rankedJornadas.slice(0, MEJORES).map(entry => entry.index);
         const total = mejores.reduce((acc, points) => acc + points, 0);
 
+        const res = st.resultadosPorCategoria[catName] || { PG: 0, PP: 0, PF: 0, PC: 0 };
+
         return {
           id: st.id,
           nombre: st.nombre,
@@ -2678,12 +2682,12 @@ export class BadmintonEngine {
           mejores,
           mejoresIndices,
           total,
-          PG: st.PG,
-          PP: st.PP,
-          difPartidos: st.PG - st.PP,
-          PF: st.PF,
-          PC: st.PC,
-          difPuntos: st.PF - st.PC
+          PG: res.PG,
+          PP: res.PP,
+          difPartidos: res.PG - res.PP,
+          PF: res.PF,
+          PC: res.PC,
+          difPuntos: res.PF - res.PC
         };
       });
 
