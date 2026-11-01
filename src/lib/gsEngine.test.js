@@ -246,7 +246,7 @@ test('comparte puestos si coinciden los puntos, la diferencia de partidos y los 
     Object.fromEntries(stats.map(player => [player.id, player]))
   ).jugadores;
 
-  assert.deepEqual(ranking.map(player => player.pos), [1, 1, 3]);
+  assert.deepEqual(ranking.map(player => player.pos), [1, 1, 2]);
 });
 
 test('agrupa en un solo ranking masculino las competiciones históricas A y B', () => {

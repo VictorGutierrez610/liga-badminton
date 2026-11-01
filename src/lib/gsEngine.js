@@ -38,6 +38,8 @@ export const CATEGORIAS = {
 
 export const MATCH_POINT_TARGETS = [7, 15, 21];
 
+const VISIBLE_RANKING_JORNADAS = 3;
+
 function getRankingCategory(category) {
   if (category === 'IM-A' || category === 'IM-B') return 'IM';
   if (category === 'IF-A' || category === 'IF-B') return 'IF';
@@ -2718,13 +2720,27 @@ export class BadmintonEngine {
       const previous = jugadores[index - 1];
       player.pos = previous && compareRankingResults(previous, player) === 0
         ? previous.pos
-        : index + 1;
+        : (previous ? previous.pos + 1 : 1);
     });
+
+    const jornadasConJuego = new Set([
+      ...this.partidos
+        .filter(match => getRankingCategory(match.categoria) === catName)
+        .map(match => match.jornada),
+      ...Object.keys(this.competiciones)
+        .filter(key => getRankingCategory(key.slice(key.indexOf('_') + 1)) === catName)
+        .map(key => key.slice(0, key.indexOf('_')))
+    ]);
+    const jornadasVisibles = jornadasList
+      .map((j, index) => (jornadasConJuego.has(j.id) ? index : -1))
+      .filter(index => index >= 0)
+      .slice(-VISIBLE_RANKING_JORNADAS);
 
     return {
       categoria: catName,
       tipo,
       jornadas: jornadasList,
+      jornadasVisibles,
       jugadores
     };
   }

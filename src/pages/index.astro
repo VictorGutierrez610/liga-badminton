@@ -2531,6 +2531,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       players = players.filter((j) => j.nombre.toLowerCase().includes(searchQ));
     }
 
+    const visibleIdx = catData.jornadasVisibles || catData.jornadas.map((_, i) => i);
+
     let html = `
       <div class="table-container rank-desktop-table">
       <table class="custom-table rank-table">
@@ -2539,7 +2541,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             <th>Pos</th>
             <th class="text-left">Jugador / Participante</th>
             <th style="color:var(--accent-gold); font-size:14px;">Total 🏆</th>
-            ${catData.jornadas.map((j) => `<th>J${j.n}<br/><small style="font-weight:400; color:var(--text-muted);">${formatShortDate(j.fecha)}</small></th>`).join("")}
+            ${visibleIdx.map((i) => catData.jornadas[i]).map((j) => `<th>J${j.n}<br/><small style="font-weight:400; color:var(--text-muted);">${formatShortDate(j.fecha)}</small></th>`).join("")}
             <th>PG</th>
             <th>PP</th>
             <th>Dif. Partidos</th>
@@ -2564,8 +2566,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
           <td class="${posClass}"><b>${j.pos}º</b></td>
           <td class="text-left"><b>${escapeHtml(j.nombre)}</b></td>
           <td style="font-weight:800; font-size:15px; color:var(--accent-gold);">${j.total}</td>
-          ${j.pts
-            .map((p, idx) => {
+          ${visibleIdx
+            .map((idx) => {
+              const p = j.pts[idx];
               const isTop = j.mejoresIndices.includes(idx);
               return `<td style="${isTop ? "background:rgba(74,222,128,0.15); color:var(--accent-green); font-weight:700;" : ""}">${p !== null ? p : "-"}</td>`;
             })
@@ -2590,8 +2593,9 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             : player.pos === 3
               ? "rank-bronze"
               : "";
-      const scoredRounds = player.pts
-        .map((points, index) =>
+      const scoredRounds = visibleIdx
+        .map((index) => [player.pts[index], index])
+        .map(([points, index]) =>
           points === null
             ? ""
             : `<span class="rank-round-chip ${player.mejoresIndices.includes(index) ? "best" : ""}">J${catData.jornadas[index].n}: ${points}</span>`,
