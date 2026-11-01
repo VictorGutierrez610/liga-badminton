@@ -2123,6 +2123,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   function renderManagerCategoryDetails() {
     if (!mgrJornadaId || !mgrCategory) return;
     const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
+    updateMixedPointsImportVisibility();
 
     // Toggle doubles vs single form
     const isDoubles = mgrCategory.startsWith("D");
@@ -2415,9 +2416,8 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
 
   function updateMixedPointsImportVisibility() {
     const importControl = document.getElementById("mixedPointsImport");
-    const selectedCategory = document.getElementById("selectRankCategory")?.value;
     if (importControl) {
-      importControl.style.display = selectedCategory === "DX" && engine.isAdminSession()
+      importControl.style.display = mgrCategory === "DX" && engine.isAdminSession()
         ? "block"
         : "none";
     }
@@ -2428,7 +2428,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       .getElementById("selectRankCategory")
       ?.addEventListener("change", (event) => {
         rankType = event.currentTarget.value;
-        updateMixedPointsImportVisibility();
         renderRankingsTable();
       });
 
@@ -2489,14 +2488,18 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     const titleEl = document.getElementById("rankTableTitle");
     if (!container) return;
     const updatedBadge = document.getElementById("rankUpdatedBadge");
+    const catKey = rankType;
+    const seasonData =
+      data.temporadas.find((t) => t.id === rankSeason) || data.temporadas[0];
+    const catData = seasonData ? seasonData.categorias[catKey] : null;
     if (updatedBadge) {
-      updatedBadge.className = data.provisional ? "badge badge-borrador" : "badge badge-definitiva";
-      updatedBadge.textContent = data.provisional
+      const isProvisional = Boolean(catData?.provisional);
+      updatedBadge.className = isProvisional ? "badge badge-borrador" : "badge badge-definitiva";
+      updatedBadge.textContent = isProvisional
         ? "Ranking provisional · en actualización"
         : `Actualizado ${data.generado}`;
     }
 
-    const catKey = rankType;
     const catFullName = {
       IM: "Individual Masculino",
       IF: "Individual Femenino",
@@ -2511,10 +2514,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       subtitleEl.textContent =
         "Puntos de las 3 mejores jornadas · Empate si coinciden el total, la diferencia de partidos y los puntos a favor";
     }
-
-    const seasonData =
-      data.temporadas.find((t) => t.id === rankSeason) || data.temporadas[0];
-    const catData = seasonData ? seasonData.categorias[catKey] : null;
 
     if (!catData || catData.jugadores.length === 0) {
       container.innerHTML = `<div class="text-muted text-center" style="padding:30px;">Aún no hay resultados de la categoría ${catKey} en la temporada.</div>`;

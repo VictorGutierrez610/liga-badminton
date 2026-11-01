@@ -2741,6 +2741,8 @@ export class BadmintonEngine {
       tipo,
       jornadas: jornadasList,
       jornadasVisibles,
+      provisional: this.partidos.some(match =>
+        getRankingCategory(match.categoria) === catName && match.estado === 'Pendiente'),
       jugadores
     };
   }

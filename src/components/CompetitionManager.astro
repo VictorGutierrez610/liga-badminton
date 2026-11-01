@@ -74,6 +74,13 @@
       </div>
     </div>
 
+    <div id="mixedPointsImport" style="display:none; margin-top:12px;">
+      <label for="mixedPointsFile" class="text-muted" style="font-size:12px;">Importar puntos DX (JSON/CSV)</label>
+      <input type="file" id="mixedPointsFile" class="form-control" accept=".json,.csv,.txt,application/json,text/csv" />
+      <small class="text-muted" style="font-size:11px;">JSON: lista con jornadaId, jugadorId y puntos. CSV: jornadaId;jugadorId;puntos.</small>
+      <small id="mixedPointsImportStatus" class="text-muted" role="status"></small>
+    </div>
+
     <div class="grid-cols-2 manager-category-grid" style="margin-top:20px; width:100%;">
       <!-- Inscription Box -->
       <div class="glass-card" style="margin:0; background:rgba(0,0,0,0.2);">
