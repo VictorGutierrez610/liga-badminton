@@ -249,6 +249,28 @@ test('comparte puestos si coinciden los puntos, la diferencia de partidos y los 
   assert.deepEqual(ranking.map(player => player.pos), [1, 1, 2]);
 });
 
+test('el total del ranking suma solo las 3 mejores jornadas de cada jugador', () => {
+  const instance = createEngine();
+  instance.jornadas = ['J1', 'J2', 'J3', 'J4', 'J5'].map(id => ({ id, fecha: '2026-10-18' }));
+  const player = (id, points) => ({
+    id,
+    nombre: `Jugador ${id}`,
+    sexo: 'M',
+    participaciones: new Set(['IM']),
+    porCategoriaJornada: { IM: points },
+    resultadosPorCategoria: { IM: { PG: 0, PP: 0, PF: 0, PC: 0 } }
+  });
+  const stats = {
+    1: player('1', { J1: 100, J2: 20, J3: 85, J4: 75, J5: 30 }),
+    2: player('2', { J2: 75 })
+  };
+
+  const [first, second] = instance.buildRankingCategory('IM', 'IM', 'M', stats).jugadores;
+  assert.equal(first.total, 260);
+  assert.deepEqual(first.mejoresIndices.sort(), [0, 2, 3]);
+  assert.equal(second.total, 75);
+});
+
 test('agrupa en un solo ranking masculino las competiciones históricas A y B', () => {
   const instance = createEngine();
   instance.jornadas = [{ id: 'J1', fecha: '2026-10-18' }];
