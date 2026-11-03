@@ -314,7 +314,7 @@ test('ofrece las categorías individuales generales y permite sortear jugadores 
   assert.deepEqual(drawnPlayerIds.sort(), ['1', '2', '3', '4']);
 });
 
-test('aplica la escala fija de eliminatorias y conserva 95 puntos mientras la final está pendiente', () => {
+test('aplica la escala fija de eliminatorias y puntos de posición desde el 5º puesto', () => {
   const instance = createEngine({ sistema: 'GRUPOS' });
   instance.socios = Array.from({ length: 8 }, (_, index) => ({
     id: String(index + 1),
@@ -343,17 +343,20 @@ test('aplica la escala fija de eliminatorias y conserva 95 puntos mientras la fi
       .map(player => [player.id, player.pts[0]])
   );
   const pendingPoints = getPoints();
-  assert.equal(pendingPoints['1'], 95);
-  assert.equal(pendingPoints['2'], 95);
-  assert.equal(pendingPoints['3'], 20);
-  assert.equal(pendingPoints['7'], 80);
+  assert.equal(pendingPoints['1'], 75);
+  assert.equal(pendingPoints['2'], 75);
+  assert.equal(pendingPoints['3'], 80);
+  assert.equal(pendingPoints['7'], 75);
+  assert.equal(pendingPoints['8'], 65);
+  assert.equal(pendingPoints['4'], 60);
+  assert.equal(pendingPoints['5'], 55);
 
   instance.partidos.find(match => match.id === 'final').estado = 'Jugado';
   instance.partidos.find(match => match.id === 'final').ganador = 'A';
   const finalPoints = getPoints();
-  assert.equal(finalPoints['6'], 125);
-  assert.equal(finalPoints['2'], 110);
-  assert.equal(finalPoints['1'], 95);
+  assert.equal(finalPoints['6'], 100);
+  assert.equal(finalPoints['2'], 85);
+  assert.equal(finalPoints['1'], 75);
 });
 
 test('excluye al comodín del ranking femenino y asigna los puntos de pareja a su compañera', () => {

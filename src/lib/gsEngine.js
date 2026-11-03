@@ -2594,7 +2594,10 @@ export class BadmintonEngine {
           Semifinal: 4,
           Final: 5
         };
-        const pointsByStage = { 1: 25, 2: 40, 3: 80, 4: 95 };
+        const SEMIFINAL_POINTS = 75;
+        const FIRST_ELIMINATED_RANK = 5;
+        const FIRST_ELIMINATED_BONUS = 65;
+        const BONUS_STEP = 5;
         const reachedStage = new Map();
         const knockoutPoints = new Map();
         const advance = (playerIds, stage) => {
@@ -2615,21 +2618,70 @@ export class BadmintonEngine {
           const winnerIds = match.ganador === 'A' ? idsA : match.ganador === 'B' ? idsB : [];
           if (stage === 5 && match.estado === 'Jugado' && winnerIds.length) {
             const loserIds = match.ganador === 'A' ? idsB : idsA;
-            winnerIds.forEach(id => knockoutPoints.set(id, 125));
-            loserIds.forEach(id => knockoutPoints.set(id, 110));
+            winnerIds.forEach(id => knockoutPoints.set(id, 100));
+            loserIds.forEach(id => knockoutPoints.set(id, 85));
           } else if (stage < 5 && (match.estado === 'Jugado' || match.estado === 'Bye')) {
             advance(winnerIds, stage + 1);
           }
         });
 
         reachedStage.forEach((stage, playerId) => {
-          if (knockoutPoints.has(playerId)) return;
-          const pointsStage = stage === 5 ? 4 : stage;
-          knockoutPoints.set(playerId, pointsByStage[pointsStage]);
+          if (stage >= 4 && !knockoutPoints.has(playerId)) {
+            knockoutPoints.set(playerId, SEMIFINAL_POINTS);
+          }
         });
         knockoutPoints.forEach((points, playerId) => {
           pointsByPlayer.set(playerId, points);
         });
+
+        // Con semifinalistas definidos, el resto se clasifica del 5º en adelante
+        // y suma puntos de posición sobre su puntuación base de grupos.
+        if (knockoutPoints.size && (comp.sistema === 'GRUPOS' || comp.sistema === 'ROTATIVOS')) {
+          const groupTiebreaks = new Map();
+          groupMatches.forEach(match => {
+            if (match.estado !== 'Jugado' || !match.sets) return;
+            let sfA = 0, sfB = 0, pfA = 0, pfB = 0;
+            match.sets.forEach(s => {
+              if (s[0] > s[1]) sfA++; else sfB++;
+              pfA += s[0]; pfB += s[1];
+            });
+            const track = (ids, sf, sc, pf, pc) => (ids || []).forEach(id => {
+              const t = groupTiebreaks.get(id) || { sets: 0, points: 0 };
+              t.sets += sf - sc;
+              t.points += pf - pc;
+              groupTiebreaks.set(id, t);
+            });
+            track(match.idsA, sfA, sfB, pfA, pfB);
+            track(match.idsB, sfB, sfA, pfB, pfA);
+          });
+
+          const eliminated = [];
+          inscritos.forEach(participant => {
+            (participant.ids || []).forEach(id => {
+              if (knockoutPoints.has(id) || !pointsByPlayer.has(id)) return;
+              const tie = groupTiebreaks.get(id) || { sets: 0, points: 0 };
+              eliminated.push({
+                id,
+                stage: reachedStage.get(id) || 0,
+                wins: groupWins.get(id) || 0,
+                setDiff: tie.sets,
+                pointDiff: tie.points,
+                name: playerStats[id]?.nombre || String(id)
+              });
+            });
+          });
+          eliminated.sort((a, b) => (
+            b.stage - a.stage ||
+            b.wins - a.wins ||
+            b.setDiff - a.setDiff ||
+            b.pointDiff - a.pointDiff ||
+            String(a.name).localeCompare(String(b.name), 'es')
+          ));
+          eliminated.forEach((entry, index) => {
+            const bonus = Math.max(0, FIRST_ELIMINATED_BONUS - BONUS_STEP * index);
+            pointsByPlayer.set(entry.id, pointsByPlayer.get(entry.id) + bonus);
+          });
+        }
       }
 
       pointsByPlayer.forEach((points, playerId) => {
