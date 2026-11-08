@@ -1921,6 +1921,7 @@ export class BadmintonEngine {
     const puntos = comp ? this.calcularPuntosCompeticion(comp, insc, pars, clasificacion) : new Map();
     Object.values(clasificacion).flat().forEach(row => {
       row.pts = puntos.get(String(row.ids[0])) ?? null;
+      row.pendiente = puntos.has(String(row.ids[0])) && puntos.get(String(row.ids[0])) === null;
     });
 
     return {
@@ -2026,12 +2027,30 @@ export class BadmintonEngine {
     if (!sistemas.includes(comp.sistema)) {
       throw new Error(`Sistema de competición no válido: ${comp.sistema}`);
     }
-    if (!partidos.length || partidos.some(match => !['Jugado', 'Bye'].includes(match.estado))) return puntos;
+    if (!partidos.length) return puntos;
     const final = partidos.find(match => match.ronda === 'Final' && match.estado === 'Jugado');
-    if (comp.sistema !== 'LIGA' && (!final || !['A', 'B'].includes(final.ganador) ||
-        !final.idsA?.length || !final.idsB?.length)) return puntos;
-    if (['GRUPOS', 'ROTATIVOS', 'LIGA'].includes(comp.sistema) &&
-        !partidos.some(match => match.ronda === 'Fase de grupos')) return puntos;
+    const pendingIds = new Set(partidos
+      .filter(match => !['Jugado', 'Bye'].includes(match.estado))
+      .flatMap(match => [...(match.idsA || []), ...(match.idsB || [])].map(String)));
+    const groupMatches = partidos.filter(match => match.ronda === 'Fase de grupos');
+    const knockoutMatches = partidos.filter(match => match.ronda !== 'Fase de grupos');
+    if (comp.sistema === 'GRUPOS' && groupMatches.length &&
+        groupMatches.every(match => match.estado === 'Jugado') && !knockoutMatches.length) {
+      Object.values(clasificacion).forEach(group => {
+        group.slice(0, comp.clasifican || 1).forEach(row => {
+          (row.ids || []).forEach(id => pendingIds.add(String(id)));
+        });
+      });
+    }
+    if (comp.sistema === 'ROTATIVOS' && groupMatches.length &&
+        groupMatches.every(match => match.estado === 'Jugado') && !knockoutMatches.length) {
+      const ranking = clasificacion['Clasificación individual'] || [];
+      const category = groupMatches[0].categoria;
+      const finalists = category === 'DX'
+        ? ['M', 'F'].flatMap(sex => ranking.filter(row => this.getRotatingPlayerSex(row.id) === sex).slice(0, 2))
+        : ranking.slice(0, 4);
+      finalists.forEach(row => pendingIds.add(String(row.id)));
+    }
 
     const puntosPorPosicion = posicion => {
       if (posicion === 1) return 100;
@@ -2044,11 +2063,13 @@ export class BadmintonEngine {
     const rows = Object.values(clasificacion).flat();
     const rowsById = new Map(rows.map(row => [String(row.id), row]));
     const assign = (participant, points) => {
-      (participant.ids || []).forEach(id => puntos.set(String(id), points));
+      const ids = (participant.ids || []).map(String);
+      const pending = ids.some(id => pendingIds.has(id));
+      ids.forEach(id => puntos.set(id, pending ? null : points));
     };
 
     if (comp.sistema === 'LIGA') {
-      rows.filter(row => row.PJ > 0).forEach(row => assign(row, puntosPorPosicion(row.posicion)));
+      rows.forEach(row => assign(row, puntosPorPosicion(row.posicion)));
       return puntos;
     }
 
@@ -2060,9 +2081,22 @@ export class BadmintonEngine {
         const key = String(id);
         stageByPlayer.set(key, Math.max(stageByPlayer.get(key) || 0, stage));
       });
+      if (stage < ROUND_STAGE.Final && ['Jugado', 'Bye'].includes(match.estado)) {
+        const winners = match.ganador === 'A' ? match.idsA : match.ganador === 'B' ? match.idsB : [];
+        (winners || []).forEach(id => {
+          const key = String(id);
+          stageByPlayer.set(key, Math.max(stageByPlayer.get(key) || 0, stage + 1));
+          const nextRound = this.nextKnockoutRound(match.ronda);
+          if (!partidos.some(next => next.ronda === nextRound &&
+              [...(next.idsA || []), ...(next.idsB || [])].map(String).includes(key))) {
+            pendingIds.add(key);
+          }
+        });
+      }
     });
-    const winnerIds = new Set((final.ganador === 'A' ? final.idsA : final.idsB).map(String));
-    const loserIds = new Set((final.ganador === 'A' ? final.idsB : final.idsA).map(String));
+    const finishedFinal = final && ['A', 'B'].includes(final.ganador) && final.idsA?.length && final.idsB?.length;
+    const winnerIds = new Set(finishedFinal ? (final.ganador === 'A' ? final.idsA : final.idsB).map(String) : []);
+    const loserIds = new Set(finishedFinal ? (final.ganador === 'A' ? final.idsB : final.idsA).map(String) : []);
     const remaining = [];
     inscritos.forEach(participant => {
       const ids = (participant.ids || []).map(String);
@@ -2084,9 +2118,11 @@ export class BadmintonEngine {
         : b.row.diffSetsGrupo - a.row.diffSetsGrupo || b.row.diffPuntosGrupo - a.row.diffPuntosGrupo) ||
       a.row.nombre.localeCompare(b.row.nombre, 'es')
     );
-    const finalParticipants = comp.sistema === 'ROTATIVOS'
-      ? inscritos.filter(participant => (participant.ids || []).some(id => winnerIds.has(String(id)) || loserIds.has(String(id)))).length
-      : 2;
+    const finalParticipants = finishedFinal
+      ? (comp.sistema === 'ROTATIVOS'
+        ? inscritos.filter(participant => (participant.ids || []).some(id => winnerIds.has(String(id)) || loserIds.has(String(id)))).length
+        : 2)
+      : 0;
     remaining.forEach((entry, index) => assign(entry.participant, puntosPorPosicion(finalParticipants + index + 1)));
     return puntos;
   }
@@ -2452,8 +2488,9 @@ export class BadmintonEngine {
         if (!st || (femaleRanking && wildcardFemalePlayerIds.has(playerId))) return;
         st.participaciones.add(rankingCategory);
         if (!st.porCategoriaJornada[rankingCategory]) st.porCategoriaJornada[rankingCategory] = {};
+        const previous = st.porCategoriaJornada[rankingCategory][jornadaId];
         st.porCategoriaJornada[rankingCategory][jornadaId] =
-          (st.porCategoriaJornada[rankingCategory][jornadaId] || 0) + points;
+          points === null || previous === null ? null : (previous || 0) + points;
       });
     });
 
@@ -2474,7 +2511,7 @@ export class BadmintonEngine {
     return {
       generado: new Date().toLocaleDateString('es-ES') + ' ' + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
       mejoresJornadas: MEJORES,
-      provisional: this.partidos.some(p => p.estado === 'Pendiente'),
+      provisional: Object.values(temporadas[0].categorias).some(category => category.provisional),
       hayDerrotas: true,
       temporadas
     };
@@ -2498,6 +2535,9 @@ export class BadmintonEngine {
       .map(st => {
         const categoryPoints = st.porCategoriaJornada[catName] || {};
         const pts = jornadasList.map(j => categoryPoints[j.id] !== undefined ? categoryPoints[j.id] : null);
+        const pendientesIndices = jornadasList
+          .map((j, index) => Object.hasOwn(categoryPoints, j.id) && categoryPoints[j.id] === null ? index : -1)
+          .filter(index => index >= 0);
         const rankedJornadas = pts
           .map((points, index) => ({ points, index }))
           .filter(entry => entry.points !== null)
@@ -2514,6 +2554,7 @@ export class BadmintonEngine {
           pts,
           mejores,
           mejoresIndices,
+          pendientesIndices,
           total,
           PG: res.PG,
           PP: res.PP,
@@ -2563,7 +2604,10 @@ export class BadmintonEngine {
         const jornada = key.slice(0, separator);
         const categoria = key.slice(separator + 1);
         const matches = this.partidos.filter(match => match.jornada === jornada && match.categoria === categoria);
-        return this.calcularPuntosCompeticion(comp, this.inscritos[key] || [], matches).size === 0;
+        return !matches.length || matches.some(match => !['Jugado', 'Bye'].includes(match.estado)) ||
+          (comp.sistema !== 'LIGA' && !matches.some(match =>
+            match.ronda === 'Final' && match.estado === 'Jugado' &&
+            ['A', 'B'].includes(match.ganador) && match.idsA?.length && match.idsB?.length));
       }),
       jugadores
     };

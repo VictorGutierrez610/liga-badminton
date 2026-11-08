@@ -719,7 +719,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             <td>${row.PF}</td>
             <td>${row.PC}</td>
             <td class="${row.diffPuntosGrupo < 0 ? "text-red" : "text-green"}">${row.diffPuntosGrupo > 0 ? "+" : ""}${row.diffPuntosGrupo}</td>
-            <td style="font-weight:700; color:var(--accent-gold);">${row.pts ?? "—"}</td>
+            <td style="font-weight:700; color:var(--accent-gold);">${row.pendiente ? "Pendiente" : row.pts ?? "—"}</td>
           </tr>
         `;
       });
@@ -2521,7 +2521,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             .map((idx) => {
               const p = j.pts[idx];
               const isTop = j.mejoresIndices.includes(idx);
-              return `<td style="${isTop ? "background:rgba(74,222,128,0.15); color:var(--accent-green); font-weight:700;" : ""}">${p !== null ? p : "-"}</td>`;
+              return `<td style="${isTop ? "background:rgba(74,222,128,0.15); color:var(--accent-green); font-weight:700;" : ""}">${j.pendientesIndices.includes(idx) ? "Pendiente" : p !== null ? p : "-"}</td>`;
             })
             .join("")}
           <td class="text-green">${j.PG}</td>
@@ -2545,11 +2545,12 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
               ? "rank-bronze"
               : "";
       const scoredRounds = visibleIdx
-        .map((index) => [player.pts[index], index])
-        .map(([points, index]) =>
-          points === null
+        .map((index) =>
+          player.pendientesIndices.includes(index)
+            ? `<span class="rank-round-chip">J${catData.jornadas[index].n}: Pendiente</span>`
+            : player.pts[index] === null
             ? ""
-            : `<span class="rank-round-chip ${player.mejoresIndices.includes(index) ? "best" : ""}">J${catData.jornadas[index].n}: ${points}</span>`,
+            : `<span class="rank-round-chip ${player.mejoresIndices.includes(index) ? "best" : ""}">J${catData.jornadas[index].n}: ${player.pts[index]}</span>`,
         )
         .filter(Boolean)
         .join("");
@@ -2647,6 +2648,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     ctx.fillText("PP", 560, startY + 26);
     ctx.fillText("PF", 640, startY + 26);
     ctx.fillText("PC", 720, startY + 26);
+    ctx.fillText("Jornadas pendientes", 820, startY + 26);
 
     players.forEach((j, i) => {
       const y = startY + 40 + i * 40;
@@ -2680,6 +2682,11 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       ctx.fillStyle = "#ffffff";
       ctx.fillText(j.PF.toString(), 640, y + 24);
       ctx.fillText(j.PC.toString(), 720, y + 24);
+      ctx.fillText(
+        j.pendientesIndices.map((index) => `J${catData.jornadas[index].n}`).join(", ") || "—",
+        820,
+        y + 24,
+      );
     });
 
     if (format === "jpg") {
