@@ -201,9 +201,10 @@ test('asigna la misma posición y puntuación de liga cuando las parejas empatan
   ];
 
   const standings = instance.calcClasificacion(inscritos, matches, { sistema: 'LIGA' }).A;
+  const points = instance.calcularPuntosCompeticion({ sistema: 'LIGA' }, inscritos, matches);
 
   assert.deepEqual(standings.map(row => row.posicion), [1, 1, 2, 2]);
-  assert.deepEqual(standings.map(row => row.pts), [100, 100, 85, 85]);
+  assert.deepEqual(standings.map(row => points.get(row.id)), [100, 100, 85, 85]);
 });
 
 test('comparte puestos si coinciden los puntos, la diferencia de partidos y los puntos a favor', () => {
@@ -336,7 +337,7 @@ test('ofrece las categorías individuales generales y permite sortear jugadores 
   assert.deepEqual(drawnPlayerIds.sort(), ['1', '2', '3', '4']);
 });
 
-test('aplica la escala fija de eliminatorias y puntos de posición desde el 5º puesto', () => {
+test('asigna puntos únicamente al terminar la competición y aplica los bloques', () => {
   const instance = createEngine({ sistema: 'GRUPOS' });
   instance.socios = Array.from({ length: 8 }, (_, index) => ({
     id: String(index + 1),
@@ -365,13 +366,9 @@ test('aplica la escala fija de eliminatorias y puntos de posición desde el 5º 
       .map(player => [player.id, player.pts[0]])
   );
   const pendingPoints = getPoints();
-  assert.equal(pendingPoints['1'], 75);
-  assert.equal(pendingPoints['2'], 75);
-  assert.equal(pendingPoints['3'], 80);
-  assert.equal(pendingPoints['7'], 75);
-  assert.equal(pendingPoints['8'], 65);
-  assert.equal(pendingPoints['4'], 60);
-  assert.equal(pendingPoints['5'], 55);
+  assert.equal(pendingPoints['1'], null);
+  assert.equal(pendingPoints['2'], undefined);
+  assert.equal(pendingPoints['3'], null);
 
   instance.partidos.find(match => match.id === 'final').estado = 'Jugado';
   instance.partidos.find(match => match.id === 'final').ganador = 'A';
@@ -379,6 +376,9 @@ test('aplica la escala fija de eliminatorias y puntos de posición desde el 5º 
   assert.equal(finalPoints['6'], 100);
   assert.equal(finalPoints['2'], 85);
   assert.equal(finalPoints['1'], 75);
+  assert.equal(finalPoints['7'], 75);
+  assert.equal(finalPoints['3'], 65);
+  assert.equal(finalPoints['8'], 65);
 });
 
 test('excluye al comodín del ranking femenino y asigna los puntos de pareja a su compañera', () => {
@@ -411,10 +411,10 @@ test('excluye al comodín del ranking femenino y asigna los puntos de pareja a s
   const players = instance.getRanking().temporadas[0].categorias.DF.jugadores;
 
   assert.equal(players.some(player => player.id === 'wildcard'), false);
-  assert.equal(players.find(player => player.id === 'partner').pts[0], 15);
+  assert.equal(players.find(player => player.id === 'partner').pts[0], null);
 });
 
-test('importa puntos mixtos desde JSON o CSV y omite el cálculo automático de la competición', async () => {
+test('ignora puntos mixtos precalculados y calcula los de la competición terminada', () => {
   const instance = createEngine({ sistema: 'GRUPOS' });
   instance.remoteRevision = 'revision-base';
   instance.socios = [
@@ -423,7 +423,11 @@ test('importa puntos mixtos desde JSON o CSV y omite el cálculo automático de 
     { id: 'm2', nombre: 'Luis', apellidos: 'Prueba', sexo: 'M' },
     { id: 'f2', nombre: 'Bea', apellidos: 'Prueba', sexo: 'F' }
   ];
-  instance.competiciones['J1_DX'] = { sistema: 'GRUPOS' };
+  instance.competiciones['J1_DX'] = { sistema: 'LIGA', puntosPrecalculados: { m1: 61, f1: 83 } };
+  instance.inscritos['J1_DX'] = [
+    { id: 'm1+f1', ids: ['m1', 'f1'], nombres: ['Mario Prueba', 'Ana Prueba'] },
+    { id: 'm2+f2', ids: ['m2', 'f2'], nombres: ['Luis Prueba', 'Bea Prueba'] }
+  ];
   instance.partidos = [{
     id: 'dx1',
     jornada: 'J1',
@@ -438,20 +442,193 @@ test('importa puntos mixtos desde JSON o CSV y omite el cálculo automático de 
     sets: [[15, 10]]
   }];
 
-  const jsonResult = await instance.importarPuntosMixtos(JSON.stringify([
-    { jornadaId: 'J1', jugadorId: 'm1', puntos: 77 },
-    { jornadaId: 'J1', nombre: 'Ana Prueba', puntos: 92 }
-  ]));
-  assert.equal(jsonResult.count, 2);
-  assert.equal(instance.lastSyncedSnapshot.competiciones['J1_DX'].puntosPrecalculados.m1, 77);
-
-  const csvResult = await instance.importarPuntosMixtos(
-    'jornadaId;jugadorId;puntos\r\nJ1;m1;61\r\nJ1;f1;83'
-  );
-  assert.equal(csvResult.count, 2);
   const players = instance.getRanking().temporadas[0].categorias.DX.jugadores;
-  assert.equal(players.find(player => player.id === 'm1').pts[0], 61);
-  assert.equal(players.find(player => player.id === 'f1').pts[0], 83);
+  assert.equal(players.find(player => player.id === 'm1').pts[0], 100);
+  assert.equal(players.find(player => player.id === 'f1').pts[0], 100);
+  assert.equal(players.find(player => player.id === 'm2').pts[0], 85);
+});
+
+test('aplica todos los límites de bloques y desempates a una jornada de 36 jugadores', () => {
+  const instance = createEngine();
+  instance.socios = Array.from({ length: 36 }, (_, index) => ({
+    id: String(index + 1), nombre: `Jugador ${String(index + 1).padStart(2, '0')}`,
+    apellidos: 'Prueba', sexo: 'M'
+  }));
+  const inscritos = instance.socios.map(player => ({
+    id: player.id, ids: [player.id], nombres: [player.nombre]
+  }));
+  instance.inscritos['J1_IM-A'] = inscritos;
+  const match = (ronda, a, b, grupo = '') => ({
+    jornada: 'J1', categoria: 'IM-A', ronda, grupo, estado: 'Jugado',
+    ganador: 'A', idsA: [String(a)], idsB: [String(b)], sets: [[15, 10]]
+  });
+  instance.partidos = [
+    ...Array.from({ length: 18 }, (_, i) => match('Fase de grupos', i * 2 + 1, i * 2 + 2, 'A')),
+    match('Semifinal', 1, 3), match('Semifinal', 2, 4), match('Final', 1, 2)
+  ];
+  const points = instance.calcularPuntosCompeticion(instance.competiciones['J1_IM-A'], inscritos, instance.partidos);
+  const expectedOrder = ['1', '2', '3', '4',
+    ...Array.from({ length: 16 }, (_, i) => String(i * 2 + 5)),
+    ...Array.from({ length: 16 }, (_, i) => String(i * 2 + 6))];
+  assert.deepEqual(expectedOrder.map(id => points.get(id)), [
+    100, 85, 75, 75,
+    ...Array(4).fill(65), ...Array(10).fill(55), ...Array(18).fill(45)
+  ]);
+  const ranking = instance.getRanking().temporadas[0].categorias.IM.jugadores;
+  assert.equal(ranking.find(player => player.id === '9').total, 65);
+  assert.equal(instance.getCompeticionDetalle('J1', 'IM-A').clasificacion.A.find(row => row.id === '9').pts, 65);
+});
+
+test('aplica la escala a liga completa y no puntúa una liga pendiente', () => {
+  const instance = createEngine();
+  const inscritos = Array.from({ length: 34 }, (_, index) => ({
+    id: String(index + 1), ids: [String(index + 1)], nombres: [`Jugador ${index + 1}`]
+  }));
+  const matches = [];
+  inscritos.forEach((a, i) => inscritos.slice(i + 1).forEach(b => matches.push({
+    ronda: 'Fase de grupos', grupo: 'Único', estado: 'Jugado', ganador: 'A',
+    idsA: a.ids, idsB: b.ids, sets: [[15, 10]]
+  })));
+  const comp = { sistema: 'LIGA' };
+  const points = instance.calcularPuntosCompeticion(comp, inscritos, matches);
+  assert.deepEqual([1, 2, 3, 4, 5, 8, 9, 18, 19, 32, 33, 34].map(id => points.get(String(id))),
+    [100, 85, 75, 75, 65, 65, 55, 55, 45, 45, 45, 45]);
+  matches[0].estado = 'Pendiente';
+  assert.equal(instance.calcularPuntosCompeticion(comp, inscritos, matches).size, 0);
+});
+
+test('clasifica parejas editadas usando sus integrantes actuales, incluso con identificadores no numéricos', () => {
+  const instance = createEngine();
+  const inscritos = [
+    { id: 'pareja-original', ids: ['z', 'a'], nombres: ['Z', 'A'] },
+    { id: 'otra-pareja', ids: ['y', 'b'], nombres: ['Y', 'B'] }
+  ];
+  const matches = [{
+    ronda: 'Fase de grupos', grupo: 'Único', estado: 'Jugado', ganador: 'A',
+    idsA: ['a', 'z'], idsB: ['b', 'y'], sets: [[15, 10]]
+  }];
+  const points = instance.calcularPuntosCompeticion({ sistema: 'LIGA' }, inscritos, matches);
+  assert.deepEqual(['a', 'z', 'b', 'y'].map(id => points.get(id)), [100, 100, 85, 85]);
+});
+
+test('suma las tres mejores jornadas calculadas y excluye competiciones inacabadas', () => {
+  const instance = createEngine();
+  instance.jornadas = Array.from({ length: 5 }, (_, i) => ({ id: `J${i + 1}`, fecha: '2026-10-18' }));
+  instance.socios = [
+    { id: '1', nombre: 'Uno', apellidos: 'Prueba', sexo: 'M' },
+    { id: '2', nombre: 'Dos', apellidos: 'Prueba', sexo: 'M' }
+  ];
+  instance.competiciones = {};
+  instance.inscritos = {};
+  instance.partidos = [];
+  instance.jornadas.forEach((jornada, index) => {
+    const key = `${jornada.id}_IM`;
+    instance.competiciones[key] = { sistema: 'LIGA' };
+    instance.inscritos[key] = instance.socios.map(player => ({
+      id: player.id, ids: [player.id], nombres: [player.nombre]
+    }));
+    instance.partidos.push({
+      jornada: jornada.id, categoria: 'IM', ronda: 'Fase de grupos', grupo: 'Único',
+      estado: index === 4 ? 'Pendiente' : 'Jugado', ganador: index < 2 ? 'A' : 'B',
+      idsA: ['1'], idsB: ['2'], sets: [[15, 10]]
+    });
+  });
+  const ranking = instance.getRanking().temporadas[0].categorias.IM;
+  const player = ranking.jugadores.find(entry => entry.id === '1');
+  assert.deepEqual(player.pts, [100, 100, 85, 85, null]);
+  assert.equal(player.total, 285);
+  assert.equal(ranking.provisional, true);
+});
+
+test('aplica las mismas puntuaciones por pareja fija a todas las modalidades', () => {
+  for (const category of ['IM', 'IF', 'DM', 'DF', 'DX']) {
+    const instance = createEngine();
+    instance.competiciones = { [`J1_${category}`]: { sistema: 'GRUPOS' } };
+    const size = category.startsWith('D') ? 2 : 1;
+    instance.socios = Array.from({ length: 8 * size }, (_, i) => ({
+      id: String(i + 1), nombre: `Jugador ${i + 1}`, apellidos: 'Prueba',
+      sexo: category === 'IF' || category === 'DF' ? 'F' : 'M'
+    }));
+    const inscritos = Array.from({ length: 8 }, (_, i) => {
+      const members = instance.socios.slice(i * size, (i + 1) * size);
+      return { id: members.map(player => player.id).join('+'), ids: members.map(player => player.id),
+        nombres: members.map(player => player.nombre) };
+    });
+    instance.inscritos[`J1_${category}`] = inscritos;
+    const match = (ronda, a, b) => ({
+      jornada: 'J1', categoria: category, ronda, grupo: 'A', estado: 'Jugado', ganador: 'A',
+      idsA: inscritos[a].ids, idsB: inscritos[b].ids, sets: [[15, 10]]
+    });
+    instance.partidos = [
+      match('Fase de grupos', 4, 5), match('Fase de grupos', 6, 7),
+      match('Semifinal', 0, 2), match('Semifinal', 1, 3), match('Final', 0, 1)
+    ];
+    const results = instance.getRanking().temporadas[0].categorias[category].jugadores;
+    inscritos.forEach((participant, index) => participant.ids.forEach(id => {
+      assert.equal(results.find(player => player.id === id).pts[0],
+        index === 0 ? 100 : index === 1 ? 85 : index < 4 ? 75 : 65, `${category}: ${id}`);
+    }));
+  }
+});
+
+test('mantiene los puntos de ambos compañeros en los límites de los bloques', () => {
+  const instance = createEngine();
+  const inscritos = Array.from({ length: 20 }, (_, i) => ({
+    id: `${i * 2 + 1}+${i * 2 + 2}`,
+    ids: [String(i * 2 + 1), String(i * 2 + 2)],
+    nombres: [`Jugador ${i * 2 + 1}`, `Jugador ${i * 2 + 2}`]
+  }));
+  const matches = [];
+  inscritos.forEach((a, i) => inscritos.slice(i + 1).forEach(b => matches.push({
+    ronda: 'Fase de grupos', grupo: 'Único', estado: 'Jugado', ganador: 'A',
+    idsA: a.ids, idsB: b.ids, sets: [[15, 10]]
+  })));
+  const points = instance.calcularPuntosCompeticion({ sistema: 'LIGA' }, inscritos, matches);
+  for (const [position, expected] of [[4, 75], [5, 65], [8, 65], [9, 55], [18, 55], [19, 45]]) {
+    assert.deepEqual(inscritos[position - 1].ids.map(id => points.get(id)), [expected, expected]);
+  }
+});
+
+test('en rotativos puntúa a ambas parejas finalistas y ordena al resto individualmente', () => {
+  const instance = createEngine();
+  const inscritos = Array.from({ length: 8 }, (_, index) => ({
+    id: String(index + 1), ids: [String(index + 1)], nombres: [`Jugador ${index + 1}`]
+  }));
+  const matches = [{
+    ronda: 'Fase de grupos', grupo: 'Ronda 1', estado: 'Jugado', ganador: 'A',
+    idsA: ['5', '7'], idsB: ['6', '8'], sets: [[15, 10]]
+  }, {
+    ronda: 'Final', estado: 'Jugado', ganador: 'A',
+    idsA: ['1', '2'], idsB: ['3', '4'], sets: [[15, 10]]
+  }];
+  const points = instance.calcularPuntosCompeticion({ sistema: 'ROTATIVOS' }, inscritos, matches);
+  assert.deepEqual(inscritos.map(player => points.get(player.id)), [100, 100, 85, 85, 65, 65, 65, 65]);
+  matches[1].estado = 'Pendiente';
+  assert.equal(instance.calcularPuntosCompeticion({ sistema: 'ROTATIVOS' }, inscritos, matches).size, 0);
+});
+
+test('asigna tercero y cuarto por clasificación cuando solo hay final', () => {
+  const instance = createEngine();
+  const inscritos = ['1', '2', '3', '4', '5'].map(id => ({ id, ids: [id], nombres: [id] }));
+  const matches = [
+    { ronda: 'Fase de grupos', grupo: 'A', estado: 'Jugado', ganador: 'A', idsA: ['4'], idsB: ['3'], sets: [[15, 10]] },
+    { ronda: 'Final', estado: 'Jugado', ganador: 'A', idsA: ['1'], idsB: ['2'], sets: [[15, 10]] }
+  ];
+  const points = instance.calcularPuntosCompeticion({ sistema: 'GRUPOS' }, inscritos, matches);
+  assert.deepEqual(['1', '2', '4', '5', '3'].map(id => points.get(id)), [100, 85, 75, 75, 65]);
+  assert.equal(instance.calcularPuntosCompeticion({ sistema: 'GRUPOS' }, inscritos, matches.slice(0, 1)).size, 0);
+});
+
+test('asigna puntos en eliminatoria directa al completar la final', () => {
+  const instance = createEngine();
+  const inscritos = ['1', '2', '3', '4', '5'].map(id => ({ id, ids: [id], nombres: [id] }));
+  const match = (ronda, a, b) => ({
+    ronda, estado: 'Jugado', ganador: 'A', idsA: [a], idsB: [b], sets: [[15, 10]]
+  });
+  const matches = [match('Cuartos', '1', '5'), match('Semifinal', '1', '3'),
+    match('Semifinal', '2', '4'), match('Final', '1', '2')];
+  const points = instance.calcularPuntosCompeticion({ sistema: 'ELIM' }, inscritos, matches);
+  assert.deepEqual(inscritos.map(player => points.get(player.id)), [100, 85, 75, 75, 65]);
 });
 
 test('aplica el desempate de grupos documentado y mantiene el resultado provisional', () => {

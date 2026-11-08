@@ -82,88 +82,6 @@ function normalizeRankingName(value) {
     .replace(/\s+/g, ' ');
 }
 
-function parseMixedRankingImport(input) {
-  if (Array.isArray(input)) return input;
-  if (input && typeof input === 'object') {
-    const records = input.puntosPrecalculados || input.puntos || input.records;
-    if (Array.isArray(records)) return records;
-    throw new Error('El JSON debe contener una lista en "puntosPrecalculados" o "puntos".');
-  }
-  if (typeof input !== 'string' || !input.trim()) {
-    throw new Error('El archivo de puntos mixtos está vacío.');
-  }
-
-  const text = input.replace(/^\uFEFF/, '').trim();
-  if (text[0] === '[' || text[0] === '{') {
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch (error) {
-      throw new Error('El JSON de puntos mixtos no tiene un formato válido.');
-    }
-    return parseMixedRankingImport(parsed);
-  }
-
-  const firstLine = text.split(/\r?\n/, 1)[0];
-  const delimiters = [',', ';', '\t'];
-  const delimiter = delimiters
-    .map(value => ({ value, count: firstLine.split(value).length - 1 }))
-    .sort((a, b) => b.count - a.count)[0];
-  if (!delimiter || delimiter.count === 0) {
-    throw new Error('El CSV debe incluir encabezados jornadaId, jugadorId o nombre, y puntos.');
-  }
-
-  const rows = [];
-  let row = [];
-  let cell = '';
-  let quoted = false;
-  for (let index = 0; index < text.length; index++) {
-    const character = text[index];
-    if (character === '"') {
-      if (quoted && text[index + 1] === '"') {
-        cell += '"';
-        index++;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === delimiter.value && !quoted) {
-      row.push(cell.trim());
-      cell = '';
-    } else if ((character === '\n' || character === '\r') && !quoted) {
-      if (character === '\r' && text[index + 1] === '\n') index++;
-      row.push(cell.trim());
-      if (row.some(value => value)) rows.push(row);
-      row = [];
-      cell = '';
-    } else {
-      cell += character;
-    }
-  }
-  row.push(cell.trim());
-  if (row.some(value => value)) rows.push(row);
-
-  if (rows.length < 2) {
-    throw new Error('El CSV debe incluir al menos una fila de puntos además de los encabezados.');
-  }
-  const headers = rows.shift().map(value => normalizeRankingName(value)
-    .replace(/[^a-z0-9]/g, ''));
-  const column = aliases => headers.findIndex(header => aliases.includes(header));
-  const jornadaColumn = column(['jornadaid', 'jornada']);
-  const playerIdColumn = column(['jugadorid', 'playerid', 'id']);
-  const playerNameColumn = column(['nombre', 'jugador', 'playername']);
-  const pointsColumn = column(['puntos', 'points']);
-  if (jornadaColumn < 0 || (playerIdColumn < 0 && playerNameColumn < 0) || pointsColumn < 0) {
-    throw new Error('El CSV debe incluir jornadaId, jugadorId o nombre, y puntos.');
-  }
-
-  return rows.map(values => ({
-    jornadaId: values[jornadaColumn],
-    jugadorId: playerIdColumn >= 0 ? values[playerIdColumn] : '',
-    nombre: playerNameColumn >= 0 ? values[playerNameColumn] : '',
-    puntos: values[pointsColumn]
-  }));
-}
-
 export const INITIAL_SOCIOS = [
   { id: '1', nombre: 'Molaye', apellidos: 'Mohamed Ahid', sexo: 'M', categoria: 'B' },
   { id: '2', nombre: 'Darío', apellidos: 'Dámaso', sexo: 'M', categoria: 'A' },
@@ -1524,7 +1442,7 @@ export class BadmintonEngine {
         grupoVictorias: 0,
         diffSetsGrupo: 0,
         diffPuntosGrupo: 0,
-        pts: 10
+        pts: null
       };
     });
 
@@ -1572,7 +1490,6 @@ export class BadmintonEngine {
     ranking.forEach(player => {
       player.diffSetsGrupo = player.SF - player.SC;
       player.diffPuntosGrupo = player.PF - player.PC;
-      player.pts = 10 + player.grupoVictorias * 5;
     });
     ranking.sort((a, b) =>
       b.grupoVictorias - a.grupoVictorias ||
@@ -2001,6 +1918,10 @@ export class BadmintonEngine {
     const insc = this.inscritos[key] || [];
     const pars = this.partidos.filter(p => p.jornada === idJornada && p.categoria === categoria);
     const clasificacion = this.calcClasificacion(insc, pars, comp);
+    const puntos = comp ? this.calcularPuntosCompeticion(comp, insc, pars, clasificacion) : new Map();
+    Object.values(clasificacion).flat().forEach(row => {
+      row.pts = puntos.get(String(row.ids[0])) ?? null;
+    });
 
     return {
       competicion: comp,
@@ -2017,9 +1938,9 @@ export class BadmintonEngine {
     }
 
     const stats = {};
+    const participantKey = ids => [...ids].map(String).sort().join('+');
     const participantByMatchIds = new Map(inscritos.map(participant => [
-      [...(participant.ids || [])].map(String).sort((a, b) => Number(a) - Number(b)).join('+'),
-      participant.id
+      participantKey(participant.ids || []), participant.id
     ]));
     inscritos.forEach(i => {
       stats[i.id] = {
@@ -2033,30 +1954,25 @@ export class BadmintonEngine {
         grupoVictorias: 0,
         diffSetsGrupo: 0,
         diffPuntosGrupo: 0,
-        pts: 0
+        pts: null
       };
     });
 
     partidos.forEach(match => {
       if (match.ronda !== 'Fase de grupos' || !match.grupo) return;
       [match.idsA || [], match.idsB || []].forEach(ids => {
-        const participantId = participantByMatchIds.get(
-          [...ids].map(String).sort((a, b) => Number(a) - Number(b)).join('+')
-        );
+        const participantId = participantByMatchIds.get(participantKey(ids));
         if (participantId && stats[participantId]) stats[participantId].grupo = match.grupo;
       });
     });
 
     partidos.forEach(p => {
       if (p.ronda !== 'Fase de grupos' || p.estado !== 'Jugado') return;
-      const participantKey = ids => [...ids].map(String).sort((a, b) => Number(a) - Number(b)).join('+');
-      const partAKey = participantKey(p.idsA || []);
-      const partBKey = participantKey(p.idsB || []);
-      const partA = inscritos.find(x => x.id === partAKey);
-      const partB = inscritos.find(x => x.id === partBKey);
+      const partA = participantByMatchIds.get(participantKey(p.idsA || []));
+      const partB = participantByMatchIds.get(participantKey(p.idsB || []));
       if (!partA || !partB) return;
 
-      const sA = stats[partA.id], sB = stats[partB.id];
+      const sA = stats[partA], sB = stats[partB];
       if (p.grupo) { sA.grupo = p.grupo; sB.grupo = p.grupo; }
 
       let sfA = 0, sfB = 0, pfA = 0, pfB = 0;
@@ -2097,15 +2013,82 @@ export class BadmintonEngine {
           previous.diffSetsGrupo === s.diffSetsGrupo &&
           previous.diffPuntosGrupo === s.diffPuntosGrupo;
         s.posicion = tied ? previous.posicion : (previous ? previous.posicion + 1 : 1);
-        if (comp && comp.sistema === 'LIGA') {
-          s.pts = Math.max(10, 100 - 15 * (s.posicion - 1));
-        } else {
-          s.pts = 10 + s.grupoVictorias * 5;
-        }
+        s.pts = null;
       });
     });
 
     return grupos;
+  }
+
+  calcularPuntosCompeticion(comp, inscritos, partidos, clasificacion = this.calcClasificacion(inscritos, partidos, comp)) {
+    const puntos = new Map();
+    const sistemas = ['LIGA', 'GRUPOS', 'ELIM', 'ROTATIVOS'];
+    if (!sistemas.includes(comp.sistema)) {
+      throw new Error(`Sistema de competición no válido: ${comp.sistema}`);
+    }
+    if (!partidos.length || partidos.some(match => !['Jugado', 'Bye'].includes(match.estado))) return puntos;
+    const final = partidos.find(match => match.ronda === 'Final' && match.estado === 'Jugado');
+    if (comp.sistema !== 'LIGA' && (!final || !['A', 'B'].includes(final.ganador) ||
+        !final.idsA?.length || !final.idsB?.length)) return puntos;
+    if (['GRUPOS', 'ROTATIVOS', 'LIGA'].includes(comp.sistema) &&
+        !partidos.some(match => match.ronda === 'Fase de grupos')) return puntos;
+
+    const puntosPorPosicion = posicion => {
+      if (posicion === 1) return 100;
+      if (posicion === 2) return 85;
+      if (posicion <= 4) return 75;
+      if (posicion <= 8) return 65;
+      if (posicion <= 18) return 55;
+      return 45;
+    };
+    const rows = Object.values(clasificacion).flat();
+    const rowsById = new Map(rows.map(row => [String(row.id), row]));
+    const assign = (participant, points) => {
+      (participant.ids || []).forEach(id => puntos.set(String(id), points));
+    };
+
+    if (comp.sistema === 'LIGA') {
+      rows.filter(row => row.PJ > 0).forEach(row => assign(row, puntosPorPosicion(row.posicion)));
+      return puntos;
+    }
+
+    const stageByPlayer = new Map();
+    partidos.forEach(match => {
+      const stage = ROUND_STAGE[match.ronda];
+      if (!stage) return;
+      [...(match.idsA || []), ...(match.idsB || [])].forEach(id => {
+        const key = String(id);
+        stageByPlayer.set(key, Math.max(stageByPlayer.get(key) || 0, stage));
+      });
+    });
+    const winnerIds = new Set((final.ganador === 'A' ? final.idsA : final.idsB).map(String));
+    const loserIds = new Set((final.ganador === 'A' ? final.idsB : final.idsA).map(String));
+    const remaining = [];
+    inscritos.forEach(participant => {
+      const ids = (participant.ids || []).map(String);
+      if (ids.length && ids.every(id => winnerIds.has(id))) {
+        assign(participant, 100);
+      } else if (ids.length && ids.every(id => loserIds.has(id))) {
+        assign(participant, 85);
+      } else {
+        const row = rowsById.get(String(participant.id)) || rowsById.get(ids[0]);
+        if (!row) throw new Error(`No se encuentra la clasificación del participante ${participant.id}.`);
+        remaining.push({ participant, row, stage: Math.max(0, ...ids.map(id => stageByPlayer.get(id) || 0)) });
+      }
+    });
+    remaining.sort((a, b) =>
+      b.stage - a.stage ||
+      b.row.grupoVictorias - a.row.grupoVictorias ||
+      (comp.sistema === 'ROTATIVOS'
+        ? b.row.diffPuntosGrupo - a.row.diffPuntosGrupo || b.row.PF - a.row.PF
+        : b.row.diffSetsGrupo - a.row.diffSetsGrupo || b.row.diffPuntosGrupo - a.row.diffPuntosGrupo) ||
+      a.row.nombre.localeCompare(b.row.nombre, 'es')
+    );
+    const finalParticipants = comp.sistema === 'ROTATIVOS'
+      ? inscritos.filter(participant => (participant.ids || []).some(id => winnerIds.has(String(id)) || loserIds.has(String(id)))).length
+      : 2;
+    remaining.forEach((entry, index) => assign(entry.participant, puntosPorPosicion(finalParticipants + index + 1)));
+    return puntos;
   }
 
   getEffectiveMatchFormat(jornada, match) {
@@ -2375,79 +2358,7 @@ export class BadmintonEngine {
 
   // --- Rankings ---
   async fetchRanking() {
-    const remote = await this.callRemote('getRanking');
-    if (remote) return remote;
     return this.getRanking();
-  }
-
-  async importarPuntosMixtos(input) {
-    const records = parseMixedRankingImport(input);
-    if (!records.length) throw new Error('No se recibieron puntos mixtos para importar.');
-
-    const updatedCompetitions = { ...this.competiciones };
-    Object.entries(updatedCompetitions).forEach(([key, competition]) => {
-      if (key.slice(key.indexOf('_') + 1) === 'DX') {
-        updatedCompetitions[key] = { ...competition, puntosPrecalculados: {} };
-      }
-    });
-
-    const importedKeys = new Set();
-    records.forEach((record, index) => {
-      if (!record || typeof record !== 'object' || Array.isArray(record)) {
-        throw new Error(`La fila ${index + 1} de la importación no tiene un formato válido.`);
-      }
-      if (record.categoria && String(record.categoria).toUpperCase() !== 'DX') {
-        throw new Error(`La fila ${index + 1} no pertenece a dobles mixtos (DX).`);
-      }
-
-      const jornadaId = String(record.jornadaId ?? record.jornada ?? '').trim();
-      if (!jornadaId || !this.jornadas.some(jornada => String(jornada.id) === jornadaId)) {
-        throw new Error(`La fila ${index + 1} indica una jornada inexistente.`);
-      }
-      const competitionKey = `${jornadaId}_DX`;
-      if (!updatedCompetitions[competitionKey]) {
-        throw new Error(`No existe una competición DX para la jornada ${jornadaId}.`);
-      }
-
-      const suppliedId = String(record.jugadorId ?? record.playerId ?? record.id ?? '').trim();
-      const suppliedName = normalizeRankingName(record.nombre ?? record.jugador ?? record.playerName);
-      let player = suppliedId
-        ? this.socios.find(socio => String(socio.id) === suppliedId)
-        : null;
-      if (!player && suppliedName) {
-        const candidates = this.socios.filter(socio =>
-          normalizeRankingName(`${socio.nombre} ${socio.apellidos}`) === suppliedName ||
-          normalizeRankingName(socio.nombre) === suppliedName
-        );
-        const uniqueCandidates = [...new Map(candidates.map(socio => [String(socio.id), socio])).values()];
-        if (uniqueCandidates.length !== 1) {
-          throw new Error(`No se pudo identificar de forma única al jugador "${record.nombre || record.jugador || record.playerName}".`);
-        }
-        player = uniqueCandidates[0];
-      }
-      if (!player) {
-        throw new Error(`La fila ${index + 1} indica un jugador inexistente.`);
-      }
-
-      const points = Number(String(record.puntos ?? record.points ?? '').trim().replace(',', '.'));
-      if (!Number.isFinite(points) || points < 0) {
-        throw new Error(`La fila ${index + 1} contiene una puntuación no válida.`);
-      }
-      const entryKey = `${jornadaId}_${player.id}`;
-      if (importedKeys.has(entryKey)) {
-        throw new Error(`El jugador ${player.nombre} aparece más de una vez en la jornada ${jornadaId}.`);
-      }
-      importedKeys.add(entryKey);
-      updatedCompetitions[competitionKey].puntosPrecalculados[player.id] = points;
-    });
-
-    await this.persistFullStateOrLocal({
-      ...this.getStateSnapshot(),
-      competiciones: updatedCompetitions
-    });
-    this.competiciones = updatedCompetitions;
-    this.saveState();
-    return { count: importedKeys.size };
   }
 
   getRanking() {
@@ -2534,158 +2445,11 @@ export class BadmintonEngine {
         p.jornada === jornadaId && p.categoria === categoria
       );
       const inscritos = this.inscritos[key] || [];
-      const pointsByPlayer = new Map();
+      const pointsByPlayer = this.calcularPuntosCompeticion(comp, inscritos, matches);
       const femaleRanking = ['IF', 'DF'].includes(rankingCategory);
-      const addPoints = (playerId, points) => {
-        if (!playerStats[playerId] ||
-            (femaleRanking && wildcardFemalePlayerIds.has(String(playerId)))) return;
-        pointsByPlayer.set(playerId, (pointsByPlayer.get(playerId) || 0) + points);
-      };
-
-      const importedMixedPoints = categoria === 'DX' && comp.puntosPrecalculados &&
-        Object.keys(comp.puntosPrecalculados).length
-        ? comp.puntosPrecalculados
-        : null;
-      if (importedMixedPoints) {
-        Object.entries(importedMixedPoints).forEach(([playerId, points]) => {
-          const numericPoints = Number(points);
-          if (!playerStats[playerId]) {
-            throw new Error(`La competición ${jornadaId}_DX tiene puntos para el socio inexistente ${playerId}.`);
-          }
-          if (!Number.isFinite(numericPoints) || numericPoints < 0) {
-            throw new Error(`La competición ${jornadaId}_DX contiene una puntuación precalculada no válida.`);
-          }
-          addPoints(playerId, numericPoints);
-        });
-      } else if (comp.sistema === 'LIGA') {
-        const groupMatches = matches.filter(p => p.ronda === 'Fase de grupos');
-        const playedMatches = groupMatches.filter(p => p.estado === 'Jugado');
-        if (playedMatches.length) {
-          const standings = this.calcClasificacion(inscritos, playedMatches, comp);
-          const orderedPlayers = Object.values(standings).flat();
-          orderedPlayers.filter(player => player.PJ > 0).forEach(player => {
-            const participant = inscritos.find(entry => entry.id === player.id);
-            (participant ? participant.ids : [player.id]).forEach(id => {
-              addPoints(id, Math.max(10, 100 - 15 * ((player.posicion || 1) - 1)));
-            });
-          });
-        }
-      } else {
-        const groupMatches = matches.filter(p => p.ronda === 'Fase de grupos');
-        const groupWins = new Map();
-        groupMatches.forEach(match => {
-          if (match.estado !== 'Jugado') return;
-          const winnerIds = match.ganador === 'A' ? match.idsA : match.ganador === 'B' ? match.idsB : [];
-          winnerIds.forEach(id => groupWins.set(id, (groupWins.get(id) || 0) + 1));
-        });
-
-        if (comp.sistema === 'GRUPOS' || comp.sistema === 'ROTATIVOS') {
-          inscritos.forEach(participant => {
-            (participant.ids || []).forEach(id => {
-              addPoints(id, 10 + (groupWins.get(id) || 0) * 5);
-            });
-          });
-        }
-
-        const roundStage = {
-          Dieciseisavos: 1,
-          Octavos: 2,
-          Cuartos: 3,
-          Semifinal: 4,
-          Final: 5
-        };
-        const SEMIFINAL_POINTS = 75;
-        const FIRST_ELIMINATED_RANK = 5;
-        const FIRST_ELIMINATED_BONUS = 65;
-        const BONUS_STEP = 5;
-        const reachedStage = new Map();
-        const knockoutPoints = new Map();
-        const advance = (playerIds, stage) => {
-          playerIds.forEach(id => {
-            reachedStage.set(id, Math.max(reachedStage.get(id) || 0, stage));
-          });
-        };
-
-        matches.filter(p => p.ronda !== 'Fase de grupos').forEach(match => {
-          const stage = roundStage[match.ronda];
-          if (!stage) return;
-          const idsA = match.idsA || [];
-          const idsB = match.idsB || [];
-          if (match.estado !== 'Jugado' && match.estado !== 'Bye' &&
-              !(stage === 5 && match.estado === 'Pendiente')) return;
-          advance([...idsA, ...idsB], stage);
-
-          const winnerIds = match.ganador === 'A' ? idsA : match.ganador === 'B' ? idsB : [];
-          if (stage === 5 && match.estado === 'Jugado' && winnerIds.length) {
-            const loserIds = match.ganador === 'A' ? idsB : idsA;
-            winnerIds.forEach(id => knockoutPoints.set(id, 100));
-            loserIds.forEach(id => knockoutPoints.set(id, 85));
-          } else if (stage < 5 && (match.estado === 'Jugado' || match.estado === 'Bye')) {
-            advance(winnerIds, stage + 1);
-          }
-        });
-
-        reachedStage.forEach((stage, playerId) => {
-          if (stage >= 4 && !knockoutPoints.has(playerId)) {
-            knockoutPoints.set(playerId, SEMIFINAL_POINTS);
-          }
-        });
-        knockoutPoints.forEach((points, playerId) => {
-          pointsByPlayer.set(playerId, points);
-        });
-
-        // Con semifinalistas definidos, el resto se clasifica del 5º en adelante
-        // y suma puntos de posición sobre su puntuación base de grupos.
-        if (knockoutPoints.size && (comp.sistema === 'GRUPOS' || comp.sistema === 'ROTATIVOS')) {
-          const groupTiebreaks = new Map();
-          groupMatches.forEach(match => {
-            if (match.estado !== 'Jugado' || !match.sets) return;
-            let sfA = 0, sfB = 0, pfA = 0, pfB = 0;
-            match.sets.forEach(s => {
-              if (s[0] > s[1]) sfA++; else sfB++;
-              pfA += s[0]; pfB += s[1];
-            });
-            const track = (ids, sf, sc, pf, pc) => (ids || []).forEach(id => {
-              const t = groupTiebreaks.get(id) || { sets: 0, points: 0 };
-              t.sets += sf - sc;
-              t.points += pf - pc;
-              groupTiebreaks.set(id, t);
-            });
-            track(match.idsA, sfA, sfB, pfA, pfB);
-            track(match.idsB, sfB, sfA, pfB, pfA);
-          });
-
-          const eliminated = [];
-          inscritos.forEach(participant => {
-            (participant.ids || []).forEach(id => {
-              if (knockoutPoints.has(id) || !pointsByPlayer.has(id)) return;
-              const tie = groupTiebreaks.get(id) || { sets: 0, points: 0 };
-              eliminated.push({
-                id,
-                stage: reachedStage.get(id) || 0,
-                wins: groupWins.get(id) || 0,
-                setDiff: tie.sets,
-                pointDiff: tie.points,
-                name: playerStats[id]?.nombre || String(id)
-              });
-            });
-          });
-          eliminated.sort((a, b) => (
-            b.stage - a.stage ||
-            b.wins - a.wins ||
-            b.setDiff - a.setDiff ||
-            b.pointDiff - a.pointDiff ||
-            String(a.name).localeCompare(String(b.name), 'es')
-          ));
-          eliminated.forEach((entry, index) => {
-            const bonus = Math.max(0, FIRST_ELIMINATED_BONUS - BONUS_STEP * index);
-            pointsByPlayer.set(entry.id, pointsByPlayer.get(entry.id) + bonus);
-          });
-        }
-      }
-
       pointsByPlayer.forEach((points, playerId) => {
         const st = playerStats[playerId];
+        if (!st || (femaleRanking && wildcardFemalePlayerIds.has(playerId))) return;
         st.participaciones.add(rankingCategory);
         if (!st.porCategoriaJornada[rankingCategory]) st.porCategoriaJornada[rankingCategory] = {};
         st.porCategoriaJornada[rankingCategory][jornadaId] =
@@ -2793,8 +2557,14 @@ export class BadmintonEngine {
       tipo,
       jornadas: jornadasList,
       jornadasVisibles,
-      provisional: this.partidos.some(match =>
-        getRankingCategory(match.categoria) === catName && match.estado === 'Pendiente'),
+      provisional: Object.entries(this.competiciones).some(([key, comp]) => {
+        const separator = key.indexOf('_');
+        if (separator < 0 || getRankingCategory(key.slice(separator + 1)) !== catName) return false;
+        const jornada = key.slice(0, separator);
+        const categoria = key.slice(separator + 1);
+        const matches = this.partidos.filter(match => match.jornada === jornada && match.categoria === categoria);
+        return this.calcularPuntosCompeticion(comp, this.inscritos[key] || [], matches).size === 0;
+      }),
       jugadores
     };
   }

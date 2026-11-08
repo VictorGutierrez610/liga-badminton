@@ -44,3 +44,9 @@ Las lecturas de jornadas y partidos son públicas para que el modo espectador fu
 Los desempates de grupos vigentes son, en este orden: victorias, diferencia de sets, diferencia de puntos y nombre. Las clasificaciones se muestran como provisionales mientras haya partidos de grupo pendientes.
 
 En parejas rotativas, los desempates individuales son: victorias, diferencia de puntos, puntos a favor y nombre. La hoja `Jornadas` añade `ParejasRotativas` después de sus encabezados existentes. El Apps Script reconoce tanto los encabezados estándar como los nombres heredados `ID_Jornada` y `BO3_Desde`, y conserva columnas adicionales como `Creada`. Las hojas `Partidos` e `Inscritos` mantienen sus formatos actuales.
+
+## Puntos de ranking
+
+En todas las modalidades y formatos se asignan por posición: 100 al primero, 85 al segundo, 75 al tercero y cuarto, 65 del quinto al octavo, 55 del noveno al decimoctavo y 45 desde el decimonoveno. Las parejas fijas comparten puntuación. En la final de parejas rotativas, ambos ganadores reciben 100 y ambos perdedores 85; los demás se clasifican a partir del quinto puesto. Cuando no hay semifinales, el tercero y cuarto se determinan mediante la clasificación existente.
+
+Los puntos solo se asignan cuando la competición está completa; en los formatos con eliminatorias debe haberse jugado la final. No se utilizan los puntos precalculados de dobles mixtos conservados en la hoja: las jornadas históricas se recalculan a partir de sus inscripciones y partidos, y sin esos datos no pueden puntuarse. El total de cada categoría suma únicamente las tres mejores jornadas de cada jugador.

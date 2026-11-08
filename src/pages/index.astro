@@ -147,7 +147,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     renderCategoryVisuals();
     if (typeof renderRankingsTable === "function") renderRankingsTable();
     renderDataSyncNotice();
-    updateMixedPointsImportVisibility();
   }
 
   function renderDataSyncNotice(message, kind = "") {
@@ -350,7 +349,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     }
 
     renderDataSyncNotice();
-    updateMixedPointsImportVisibility();
 
     // Refresh views to show/hide edit actions
     renderCategoryVisuals();
@@ -721,7 +719,7 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
             <td>${row.PF}</td>
             <td>${row.PC}</td>
             <td class="${row.diffPuntosGrupo < 0 ? "text-red" : "text-green"}">${row.diffPuntosGrupo > 0 ? "+" : ""}${row.diffPuntosGrupo}</td>
-            <td style="font-weight:700; color:var(--accent-gold);">${row.pts}</td>
+            <td style="font-weight:700; color:var(--accent-gold);">${row.pts ?? "—"}</td>
           </tr>
         `;
       });
@@ -2123,7 +2121,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
   function renderManagerCategoryDetails() {
     if (!mgrJornadaId || !mgrCategory) return;
     const detail = engine.getCompeticionDetalle(mgrJornadaId, mgrCategory);
-    updateMixedPointsImportVisibility();
 
     // Toggle doubles vs single form
     const isDoubles = mgrCategory.startsWith("D");
@@ -2414,15 +2411,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
     return ["pedrito", "pedrito 2", "pedrito2 alonso"].includes(name);
   }
 
-  function updateMixedPointsImportVisibility() {
-    const importControl = document.getElementById("mixedPointsImport");
-    if (importControl) {
-      importControl.style.display = mgrCategory === "DX" && engine.isAdminSession()
-        ? "block"
-        : "none";
-    }
-  }
-
   function initRankings() {
     document
       .getElementById("selectRankCategory")
@@ -2444,42 +2432,6 @@ import GoogleSheetsConnect from "../components/GoogleSheetsConnect.astro";
       .getElementById("btnExportRankPdf")
       ?.addEventListener("click", () => exportRankingCanvas("pdf"));
 
-    document
-      .getElementById("mixedPointsFile")
-      ?.addEventListener("change", async (event) => {
-        const input = event.currentTarget;
-        const file = input.files?.[0];
-        const status = document.getElementById("mixedPointsImportStatus");
-        if (!file) return;
-        if (!engine.isAdminSession()) {
-          if (status) status.textContent = "La importación requiere el Modo Administrador.";
-          input.value = "";
-          openAdminModal();
-          return;
-        }
-        if (status) {
-          status.style.color = "var(--text-muted)";
-          status.textContent = "Importando puntos mixtos…";
-        }
-        try {
-          const result = await engine.importarPuntosMixtos(await file.text());
-          if (status) {
-            status.style.color = "var(--accent-green)";
-            status.textContent = `Se importaron ${result.count} puntuación(es) mixtas.`;
-          }
-          renderRankingsTable();
-          renderDataSyncNotice();
-        } catch (error) {
-          if (status) {
-            status.style.color = "var(--accent-red)";
-            status.textContent = error instanceof Error ? error.message : String(error);
-          }
-        } finally {
-          input.value = "";
-        }
-      });
-
-    updateMixedPointsImportVisibility();
   }
 
   function renderRankingsTable() {
